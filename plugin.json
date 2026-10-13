@@ -1,0 +1,38 @@
+{
+  "name": "lazyargon-workspace",
+  "displayName": "LazyArgon Workspace",
+  "version": "1.0.4",
+  "description": "Google Antigravity (Gemini 4 Argon, Gemini 3.8 Flash, Claude Opus/Sonnet 5.5) unified forensic, legal-tech & workspace assistant — 4 lanes (help/forensic/visual/legal). Not a forensic acquisition or court-admissibility suite. Bundles digital forensics, Korean document processing (HWP/HWPX), ECFS court evidence stamping/binding, legal drafting, PII masking, media analysis, and Humanize KR.",
+  "author": {
+    "name": "daeryundf2-prog",
+    "url": "https://github.com/daeryundf2-prog"
+  },
+  "license": "MIT",
+  "skills": "./skills/",
+  "hooks": "./hooks.json",
+  "mcpServers": "./mcp_config.json",
+  "pythonDependencies": "./requirements.txt",
+  "suggestedPrompts": [
+    "카카오톡 대화 내보내기 텍스트를 파싱하고 포렌식 타임라인을 생성해줘",
+    "갑호증 PDF 증거 파일들에 전자소송 표준 표찰을 찍고 하나의 바인더로 병합해줘",
+    "이 보고서 초안에서 AI 문체 슬롭을 제거하고 자연스러운 한국어로 윤문해줘"
+  ],
+  "interface": {
+    "displayName": "LazyArgon Workspace",
+    "shortDescription": "Unified Forensics, Legal-Tech, Korean Docs & Humanize KR for Antigravity",
+    "longDescription": "Equips Antigravity with 4 lanes (help/forensic/visual/legal) for Gemini 4 Argon: Kakao/Telegram parsing, os.stat hash/timestamp checks, timeline visualization, report drafts, SHA-256 audit hooks, HWP/HWPX parsing, ECFS court evidence stamping/binding, legal brief drafting, PII masking, Whisper STT/OCR media analysis, and Humanize KR. Not a forensic acquisition or court-admissibility suite.",
+    "developerName": "daeryundf2-prog",
+    "category": "DFIR, Legal-Tech & Productivity",
+    "capabilities": [
+      "Kakao & Telegram Chat Export Parsing",
+      "OS Timestamp & SHA-256 Hash Audit",
+      "Timeline Visualization & Report Drafting",
+      "Evidence Write-Lock & Audit Trail",
+      "Korean Official Doc (HWP/HWPX/PDF) Parsing",
+      "ECFS Court Evidence Stamper & PDF Binder",
+      "Legal Case Search & Brief Draft Builder",
+      "Korean PII Masking & Humanize KR Deslop"
+    ],
+    "brandColor": "#1E3A8A"
+  }
+}

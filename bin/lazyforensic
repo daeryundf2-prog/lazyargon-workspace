@@ -1,0 +1,91 @@
+#!/bin/sh
+# lazyforensic — 어느 디렉터리에서든 스크립트를 부르는 CLI 래퍼 (POSIX sh)
+# 설치: PATH에 이 bin/ 디렉터리를 추가하거나 /usr/local/bin에 심볼릭 링크
+#   export PATH="$HOME/devin/lazyforensic/bin:$PATH"
+#   ln -s "$HOME/devin/lazyforensic/bin/lazyforensic" /usr/local/bin/lazyforensic
+set -eu
+
+SELF="$0"
+case "$SELF" in
+  */*) ;;
+  *) SELF="$(command -v "$SELF")" ;;
+esac
+LINKS=0
+while [ -L "$SELF" ]; do
+  LINKS=$((LINKS + 1))
+  [ "$LINKS" -le 40 ] || { printf '%s\n' 'Symlink resolution limit exceeded' >&2; exit 2; }
+  BASE="$(CDPATH= cd -P "$(dirname "$SELF")" && pwd)"
+  TARGET="$(readlink "$SELF")"
+  case "$TARGET" in
+    /*) SELF="$TARGET" ;;
+    *) SELF="$BASE/$TARGET" ;;
+  esac
+done
+ROOT="$(CDPATH= cd -P "$(dirname "$SELF")/.." && pwd)"
+# 우선순위: $LF_PYTHON > setup_forensic_env.py가 만든 ~/.lfenv venv > 시스템 python3
+if [ -n "${LF_PYTHON:-}" ]; then
+  PY="$LF_PYTHON"
+elif [ -x "$HOME/.lfenv/bin/python" ]; then
+  PY="$HOME/.lfenv/bin/python"
+else
+  PY="${PY:-python3}"
+fi
+
+usage() {
+  cat <<EOF
+lazyforensic — 증거 선조사 CLI 래퍼 (로컬 전용)
+
+  lazyforensic scan <폴더> [--keywords ...] [--stt] [-o out.json] [--markdown out.md]
+  lazyforensic stt <오디오|폴더> [--keywords ...] [--verbatim]
+  lazyforensic pii <파일|폴더> [--mask]
+  lazyforensic manifest <폴더> [-o m.json] [--verify m.json]
+  lazyforensic sig <파일|폴더>        매직바이트 위장 감사
+  lazyforensic dedup <폴더>           중복 파일 탐지
+  lazyforensic similar <폴더>         유사 이미지 검색 (Pillow)
+  lazyforensic exif <파일|폴더>       이미지 메타데이터 감사 (Pillow)
+  lazyforensic kw <폴더> "키워드"     증거형 키워드 리포트
+  lazyforensic archive <파일|폴더>    zip/tar 내부 감사
+  lazyforensic pdf <파일|폴더>        PDF 구조 감사
+  lazyforensic db <파일|폴더>         SQLite 표면 조사 (읽기전용)
+  lazyforensic vcheck <파일|폴더>     영상 손상 감지 (ffmpeg)
+  lazyforensic vfp <영상> [--compare B]  영상 지문 (ffmpeg)
+  lazyforensic afp <폴더>             오디오 지문 유사 쌍 (fpcalc)
+  lazyforensic osint <닉네임>         sherlock OSINT (외부 쿼리 — 동의 필요)
+  lazyforensic timeline --manifest m.json ...   다중 소스 시각 병합
+  lazyforensic sheet <manifest.json> [--party 갑] 서증 목록표 초안
+  lazyforensic export <manifest.json> -o e.json   lazyothers evidence.json 변환
+  lazyforensic dlp <로그.csv>          DLP 로그 → 체크리스트 표 (탐지 아님, 정리)
+  lazyforensic audit                  외부 반출 경로 정적 감사
+  lazyforensic setup [--check]        선택 의존성 환경 설치/진단
+EOF
+}
+
+[ $# -lt 1 ] && { usage; exit 2; }
+cmd="$1"; shift
+
+case "$cmd" in
+  scan)      exec "$PY" "$ROOT/scripts/case_survey.py" "$@" ;;
+  stt)       exec "$PY" "$ROOT/scripts/local_stt.py" "$@" ;;
+  pii)       exec "$PY" "$ROOT/scripts/pii_mask.py" "$@" ;;
+  manifest)  exec "$PY" "$ROOT/scripts/evidence_manifest.py" "$@" ;;
+  sig)       exec "$PY" "$ROOT/scripts/signature_check.py" "$@" ;;
+  dedup)     exec "$PY" "$ROOT/scripts/dedup_files.py" "$@" ;;
+  similar)   exec "$PY" "$ROOT/scripts/image_similarity.py" "$@" ;;
+  exif)      exec "$PY" "$ROOT/scripts/exif_audit.py" "$@" ;;
+  kw)        exec "$PY" "$ROOT/scripts/keyword_report.py" "$@" ;;
+  archive)   exec "$PY" "$ROOT/scripts/archive_survey.py" "$@" ;;
+  pdf)       exec "$PY" "$ROOT/scripts/pdf_audit.py" "$@" ;;
+  db)        exec "$PY" "$ROOT/scripts/sqlite_survey.py" "$@" ;;
+  vcheck)    exec "$PY" "$ROOT/scripts/video_integrity.py" "$@" ;;
+  vfp)       exec "$PY" "$ROOT/scripts/video_fingerprint.py" "$@" ;;
+  afp)       exec "$PY" "$ROOT/scripts/audio_fingerprint.py" "$@" ;;
+  osint)     exec "$PY" "$ROOT/scripts/osint_username.py" "$@" ;;
+  timeline)  exec "$PY" "$ROOT/scripts/merge_timeline.py" "$@" ;;
+  sheet)     exec "$PY" "$ROOT/scripts/court_evidence_sheet.py" "$@" ;;
+  export)    exec "$PY" "$ROOT/scripts/evidence_export.py" "$@" ;;
+  dlp)       exec "$PY" "$ROOT/scripts/dlp_log_table.py" "$@" ;;
+  audit)     exec "$PY" "$ROOT/scripts/local_only_audit.py" "$@" ;;
+  setup)     exec "$PY" "$ROOT/scripts/setup_forensic_env.py" "$@" ;;
+  -h|--help|help) usage ;;
+  *) echo "알 수 없는 명령: $cmd" >&2; usage; exit 2 ;;
+esac

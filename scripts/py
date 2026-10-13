@@ -1,0 +1,15 @@
+#!/bin/sh
+# py — venv 인지 python 리졸버 (POSIX)
+# 스킬·스크립트가 `python`을 부르기 전에 이 래퍼를 거치면,
+# install.sh가 PEP 668로 만든 .venv 설치분을 자동으로 찾는다.
+# 우선순위: $LO_PYTHON > lazyothers/.venv > ~/.lfenv > 시스템 python3
+D="$(cd "$(dirname "$0")/.." && pwd)"
+if [ -n "${LO_PYTHON:-}" ]; then
+  exec "$LO_PYTHON" "$@"
+elif [ -x "$D/.venv/bin/python" ]; then
+  exec "$D/.venv/bin/python" "$@"
+elif [ -x "$HOME/.lfenv/bin/python" ]; then
+  exec "$HOME/.lfenv/bin/python" "$@"
+else
+  exec python3 "$@"
+fi

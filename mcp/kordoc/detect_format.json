@@ -1,0 +1,1 @@
+{"name":"detect_format","description":"파일의 포맷을 매직 바이트로 감지합니다 (hwpx, hwp, pdf, xlsx, docx, unknown).","parameters":{"$schema":"http://json-schema.org/draft-07/schema#","additionalProperties":false,"properties":{"file_path":{"description":"감지할 파일의 절대 경로","minLength":1,"type":"string"}},"required":["file_path"],"type":"object"}}

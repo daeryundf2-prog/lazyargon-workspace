@@ -1,0 +1,38 @@
+
+# Core (required for HWPX/HWP/PDF parsing)
+# Dev
+# Financial flow tracer — XLSX 거래내역 읽기 (CSV는 표준 라이브러리로 처리)
+# Firecrawl AnyDoc — Universal Office & Document to Markdown converter (DOCX, PPTX, XLSX, etc.)
+# NTFS 아티팩트 파싱 (MFT/USN). 없으면 scripts/parse_ntfs_artifacts.py 가 exit 3 + 안내로 종료
+# Optional — Kiwi 형태소 그라운딩 (`--morph-grounding`). 없으면 정규식 폴백으로 정합성 감사 품질이 떨어진다.
+# Optional — OCR for scanned PDFs
+# Optional — enhanced HWP 5.0 parsing
+# docling>=2.0
+# lazyforensic Python dependencies
+# lazyothers Python dependencies
+# scripts/analyze_deepfake_evidence.py, skills/video-editor/helpers/timeline_view.py
+# unstructured>=0.12
+# yt-dlp>=2024.1.0
+# 딥페이크 포렌식 레이더 — ELA/노이즈 분석 및 차트 렌더
+# 버전 동작 변경으로 산출물이 달라지는 것을 막는다.
+# 법증 도구 체인이므로 상한을 고정한다(다음 메이저까지) — 갑작스런 상위
+# 상한을 고정해 상위 버전 동작 변경으로 산출물이 달라지는 것을 막는다.
+# 아래 항목은 전부 선택 의존성이며, 없으면 해당 기능만 비활성되고 나머지는 그대로 동작한다.
+# 없으면 정규식 폴백으로 내려가 조사 분리 정확도가 떨어진다. scripts/korean_morph_forensic.py
+# 영상 다운로드 (skills/forensic-video). CLI 로 설치해도 된다
+# 외부 STT API 호출 (skills/video-editor/helpers/transcribe.py)
+# 한국어 형태소 그라운딩 (`--morph-grounding`, `--high-fidelity`)
+# 핵심 경로(증거 파싱·타임라인·해시·보고서 검증)는 표준 라이브러리만 쓴다.
+dissect.target>=3.15,<4
+firecrawl-anydoc==0.2.4
+hwp-hwpx-parser>=0.3,<2
+kiwipiepy>=0.20,<1
+matplotlib>=3.8,<4
+numpy>=1.26,<3
+olefile>=0.47,<1
+openpyxl>=3.1,<4
+pillow>=10.0,<12
+pymupdf>=1.23,<2
+pypdf>=4.0,<7
+pytest>=7.0,<9
+requests>=2.31,<3

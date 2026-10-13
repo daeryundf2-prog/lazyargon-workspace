@@ -1,0 +1,103 @@
+title: NetExec (nxc) 침투 도구 실행 탐지
+id: 8f2a3c1e-9b4d-4e5f-a1c2-7d8e9f0a1b2c
+status: experimental
+description: |
+  NetExec(nxc.exe, 구 CrackMapExec) 실행 및 그에 수반되는 MFT/서비스 아티팩트를
+  탐지한다. Chainsaw/Hayabusa 시그마 호환. 대응 침투 테스트 또는 무단
+  자격증명 스프레이 정황에서 발생.
+references:
+  - https://github.com/Pennyw0rth/NetExec
+author: lazyforensic
+date: 2026-09-23
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_img:
+    - Image|endswith:
+        - '\nxc.exe'
+        - '\netexec.exe'
+    - OriginalFileName:
+        - 'nxc.exe'
+        - 'netexec.exe'
+  selection_cli:
+    CommandLine|contains:
+      - 'nxc smb'
+      - 'nxc ldap'
+      - 'nxc winrm'
+      - 'nxc mssql'
+      - 'netexec smb'
+      - '--shares'
+      - '--sam'
+      - '--lsa'
+      - '-M lsassy'
+      - '-M nanodump'
+  condition: selection_img or selection_cli
+fields:
+  - CommandLine
+  - Image
+  - ParentImage
+  - User
+falsepositives:
+  - 승인된 내부 모의해킹/침투 테스트
+level: high
+---
+title: MFT 대량 변조/삭제 정황 (anti-forensics)
+id: 3b7c9d2e-4f5a-6b7c-8d9e-0f1a2b3c4d5e
+status: experimental
+description: |
+  $MFT 레코드의 대량 삭제·타임스탬프 변조(timestomp류) 정황을 탐지한다.
+  NTFS 로그/UsnJrnl의 단시간 대량 DELETE 연출 및 시스템 도구(cipher, sdelete,
+  fsutil usn deletejournal) 실행을 포착.
+references:
+  - https://github.com/WithSecureLabs/chainsaw
+author: lazyforensic
+date: 2026-09-23
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_tool:
+    Image|endswith:
+      - '\cipher.exe'
+      - '\sdelete.exe'
+      - '\sdelete64.exe'
+      - '\fsutil.exe'
+      - '\timestomp.exe'
+  selection_args:
+    CommandLine|contains:
+      - '/w:'
+      - 'usn deletejournal'
+      - '-accepteula'
+      - 'timestomp'
+  condition: selection_tool and selection_args
+fields:
+  - CommandLine
+  - Image
+  - ParentImage
+level: high
+---
+title: 외부 서비스 설치 기반 원격 실행 (NetExec/PSExec 계열)
+id: 5d1e2f3a-6b7c-8d9e-0f1a-2b3c4d5e6f7a
+status: experimental
+description: |
+  Security 7045/System 이벤트로 나타나는 임의 서비스 설치를 탐지한다.
+  NetExec --exec-method smbexec/wmiexec, PsExec 계열의 REMOTE svc 생성 패턴.
+logsource:
+  product: windows
+  service: system
+detection:
+  selection_event:
+    EventID: 7045
+  selection_svc:
+    ServiceName|contains:
+      - 'PSEXESVC'
+      - 'RemCom'
+      - 'PAExec'
+  selection_rand:
+    ServiceFileName|contains:
+      - 'ADMIN$'
+      - '\\System32\\'
+      - '%SystemRoot%'
+  condition: selection_event and (selection_svc or selection_rand)
+level: medium

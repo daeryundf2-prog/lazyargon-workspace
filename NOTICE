@@ -1,0 +1,29 @@
+LazyForensic third-party notice
+================================
+
+The root MIT license applies only to original LazyForensic files unless a
+subtree carries a compatible license and notice of its own.
+
+Fetched at setup time (not bundled in this repo)
+------------------------------------------------
+
+- korean-law-mcp/
+  Upstream: https://github.com/daeryundf2-prog/korean-law-mcp
+  License: MIT
+  Copyright: Chris
+  This subtree is NOT committed here — `scripts/setup_korean_law.mjs` clones
+  the pinned commit on first setup. After cloning, see
+  korean-law-mcp/LICENSE and korean-law-mcp/NOTICE in that checkout.
+
+Removed trees (license review could not be closed)
+---------------------------------------------------
+
+The following unlicensed third-party trees were REMOVED from this repository
+before distribution: skills/slopslap/ (vibedesignlab/slopslap, no license,
+marked private upstream), design-systems/ (VoltAgent brand catalog; third-party
+trademarks), mengto-skills/ (Meng To / DesignCode catalog, no license file),
+vendor/antv-infographic/ (derived reference docs, no license file).
+
+If you need them, obtain the rights and re-introduce them as a separately
+licensed optional pack. Do not assume this repository's MIT declaration
+grants rights over those catalogs.
