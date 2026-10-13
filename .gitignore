@@ -38,3 +38,4 @@ audit_trail.jsonl
 # Local DFIR binary cache (BYO, not committed)
 tools/bin/
 tools/
+.playwright-mcp/

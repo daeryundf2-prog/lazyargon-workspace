@@ -114,11 +114,13 @@ def test_hooks_matchers_cover_write_file_and_shell():
     hooks_data = json.loads((ROOT / "hooks.json").read_text(encoding="utf-8"))
     ptu = hooks_data["hooks"]["PostToolUse"]
     write_m = ptu[0]["matcher"]
-    shell_m = ptu[1]["matcher"]
+    shell_m = ptu[1]["matcher"] if len(ptu) > 1 else ptu[0]["matcher"]
     for token in ("write_file", "WriteToFile", "WriteFile", "MultiEdit", "SearchReplace"):
         assert token in write_m
     for token in ("Bash", "bash", "Shell", "shell", "execute_command"):
         assert token in shell_m
+    post_cmds = [h["command"] for grp in ptu for h in grp["hooks"]]
+    assert len(post_cmds) == len(set(post_cmds))
 
 
 def test_mcp_config_covers_bundled_servers(tmp_path):

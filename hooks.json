@@ -21,7 +21,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "^(write_to_file|WriteToFile|write_file|WriteFile|replace_file_content|ReplaceFileContent|apply_patch|write|Write|edit|Edit|multi_edit|multiedit|MultiEdit|search_replace|SearchReplace|str_replace|StrReplace|generate_document|fill_form)$",
+        "matcher": "^(write_to_file|WriteToFile|write_file|WriteFile|replace_file_content|ReplaceFileContent|multi_replace_file_content|MultiReplaceFileContent|apply_patch|write|Write|edit|Edit|multi_edit|multiedit|MultiEdit|search_replace|SearchReplace|str_replace|StrReplace|generate_document|fill_form|Bash|bash|shell|Shell|run_command|RunCommand|terminal|Terminal|execute|Execute|execute_command|mcp__.*)$",
         "hooks": [
           {
             "type": "command",
@@ -33,31 +33,6 @@
             "command": "node \"${PLUGIN_ROOT:-.}/scripts/hallucination_guard.mjs\"",
             "timeout": 30
           },
-          {
-            "type": "command",
-            "command": "node \"${PLUGIN_ROOT:-.}/scripts/legal_factuality_guard.mjs\"",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "^(Bash|bash|shell|Shell|run_command|RunCommand|terminal|Terminal|execute|Execute|execute_command)$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${PLUGIN_ROOT:-.}/scripts/hallucination_guard.mjs\"",
-            "timeout": 30
-          },
-          {
-            "type": "command",
-            "command": "node \"${PLUGIN_ROOT:-.}/scripts/legal_factuality_guard.mjs\"",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "^(mcp__.*|.*generate_document.*|.*fill_form.*)$",
-        "hooks": [
           {
             "type": "command",
             "command": "node \"${PLUGIN_ROOT:-.}/scripts/legal_factuality_guard.mjs\"",

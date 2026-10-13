@@ -311,7 +311,7 @@ class StopClaimGuardTests(unittest.TestCase):
         post = data["hooks"]["PostToolUse"]
         pre = data["hooks"]["PreToolUse"]
         write_m = post[0]["matcher"]
-        shell_m = post[1]["matcher"]
+        shell_m = post[1]["matcher"] if len(post) > 1 else post[0]["matcher"]
         pre_m = pre[0]["matcher"]
         for token in ("write_file", "WriteToFile", "MultiEdit", "SearchReplace", "StrReplace"):
             self.assertIn(token, write_m)
@@ -319,6 +319,8 @@ class StopClaimGuardTests(unittest.TestCase):
         for token in ("Bash", "bash", "Shell", "shell", "execute_command"):
             self.assertIn(token, shell_m)
             self.assertIn(token, pre_m)
+        post_cmds = [h["command"] for grp in post for h in grp["hooks"]]
+        self.assertEqual(len(post_cmds), len(set(post_cmds)))
 
 
 class StatutoryBoundsTests(unittest.TestCase):
