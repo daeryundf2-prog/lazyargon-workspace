@@ -91,10 +91,13 @@ class GeminiCatalogTests(unittest.TestCase):
 
     def test_plugin_wires_hooks_and_gemini_default(self):
         data = json.loads((ROOT / "plugin.json").read_text(encoding="utf-8"))
+        self.assertNotIn("skills", data)
+        self.assertTrue((ROOT / "skills").is_dir())
         self.assertEqual(data["hooks"], "./hooks.json")
         self.assertIn("Gemini 3.8 Flash", data["description"])
         hooks = json.loads((ROOT / "hooks.json").read_text(encoding="utf-8"))
-        command = hooks["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+        ss0 = hooks["hooks"]["SessionStart"][0]
+        command = ss0["command"] if "command" in ss0 else ss0["hooks"][0]["command"]
         self.assertIn("session_start.mjs", command)
 
     def test_session_start_injects_gemini_md(self):

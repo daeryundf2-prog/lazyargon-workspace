@@ -1,6 +1,6 @@
 ---
 name: forensic-report
-description: 포렌식 감정서/보고서 초안. 측정값만 채운다. 의뢰인 주장 입증·법원 적격 단정에는 쓰지 말 것. Triggers: forensic-report, 포렌식 감정서, 포렌식 보고서, forensic-factuality-health.
+description: "포렌식 감정서/보고서 초안. 측정값만 채운다. 의뢰인 주장 입증·법원 적격 단정에는 쓰지 말 것. Triggers: forensic-report, 포렌식 감정서, 포렌식 보고서, forensic-factuality-health."
 ---
 
 # forensic-report: 보고서 초안 작성

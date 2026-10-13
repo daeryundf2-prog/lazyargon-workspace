@@ -5,9 +5,13 @@
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
 
-# 우선순위: $LF_PYTHON > setup_forensic_env.ps1이 만든 %USERPROFILE%\.lfenv > python > py
+# 우선순위: $LF_PYTHON > $LO_PYTHON > $Root\.venv > %USERPROFILE%\.lfenv > python > py
 if ($env:LF_PYTHON) {
     $Py = $env:LF_PYTHON
+} elseif ($env:LO_PYTHON) {
+    $Py = $env:LO_PYTHON
+} elseif (Test-Path "$Root\.venv\Scripts\python.exe") {
+    $Py = "$Root\.venv\Scripts\python.exe"
 } elseif (Test-Path "$env:USERPROFILE\.lfenv\Scripts\python.exe") {
     $Py = "$env:USERPROFILE\.lfenv\Scripts\python.exe"
 } elseif (Get-Command python -ErrorAction SilentlyContinue) {

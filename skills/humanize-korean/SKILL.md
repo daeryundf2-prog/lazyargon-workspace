@@ -1,7 +1,7 @@
 ---
 name: humanize-korean
 version: "2.3.3"
-description: "AI(ChatGPT·Claude·Gemini 등)가 쓴 한글 텍스트를 "사람이 쓴 글처럼" 윤문해주는 오케스트레이터 스킬. 번역투·영어 인용 과다·기계적 병렬·관용구·피동태 남용·접속사 남발·리듬 균일성·이모지/불릿 과다 등 10대 카테고리 71개 AI 티 패턴을 탐지·분류해 내용은 한 글자도 건드리지 않고 문체·리듬·표현만 자연스러운 한국어로 재작성한다. shim의 route_hint(light|standard|heavy)로 경로를 정해 잘 쓴 글은 1콜, 표준은 2콜."
+description: "AI(ChatGPT·Claude·Gemini 등)가 쓴 한글 텍스트를 '사람이 쓴 글처럼' 윤문해주는 오케스트레이터 스킬. 번역투·영어 인용 과다·기계적 병렬·관용구·피동태 남용·접속사 남발·리듬 균일성·이모지/불릿 과다 등 10대 카테고리 71개 AI 티 패턴을 탐지·분류해 내용은 한 글자도 건드리지 않고 문체·리듬·표현만 자연스러운 한국어로 재작성한다. shim의 route_hint(light|standard|heavy)로 경로를 정해 잘 쓴 글은 1콜, 표준은 2콜."
 ---
 
 # Humanize Korean — AI 한글 티 제거 오케스트레이터 (v2.3)
@@ -274,9 +274,9 @@ Antigravity에서는 `invoke_subagent` 의 `Subagents[].Model` 힌트만 쓸 수
 
 | 런타임 에이전트 | Antigravity `Model` | 근거 |
 |---|---|---|
-| `humanize-monolith` | `flash` | 전 경로 공용 윤문 — 처리량 우선 |
-| `humanize-diagnostician` | `pro` (세션 무관, Claude 할당량 절약) | 71패턴 전수 진단 — 추론 정확도 우선 |
-| `humanize-finalizer` | `pro` (Gemini 세션) / `inherit` (Claude 5.5 세션, 최종 판정 레인 1개) | heavy·승급 마무리 — 의미 보존 15항 검증 |
+| `humanize-monolith` | `inherit` | 전 경로 공용 윤문 — 세션 모델(Gemini 4 Argon) 계승 |
+| `humanize-diagnostician` | `inherit` | 71패턴 전수 진단 — 세션 모델(Gemini 4 Argon) 계승 |
+| `humanize-finalizer` | `inherit` | heavy·승급 마무리 — 의미 보존 15항 검증 (긴급 쿼터 폴백 시에만 `flash_lite`) |
 
 `model: opus` 같은 Anthropic 모델명을 Antigravity 에 그대로 넘기지 않는다. `Model` 값은 `flash | pro | flash_lite | inherit` 만 유효하며, 호스트 강제가 아닌 힌트다.
 

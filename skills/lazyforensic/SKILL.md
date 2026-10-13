@@ -20,11 +20,12 @@ Antigravity 진입점. 먼저 `GEMINI.md`를 읽고, **레인 하나**만 고른
 | 타임라인 HTML | `../forensic-timeline/SKILL.md` | — |
 | 생성/수정 시각, 해시 | `../forensic-audit/SKILL.md` | — |
 | 카카오톡 내보내기 | `../kakao-chat-extractor/SKILL.md` | — |
+| 텔레그램 JSON 내보내기 | `../telegram-chat-extractor/SKILL.md` | — |
 | **보고서 초안** | `../forensic-report/SKILL.md` | **보고서 → 무조건** |
 | **보고서 검증 (무조건)** | `../report-guard/SKILL.md` | **검증/할루체크/팩트체크 → 무조건** |
 | CCTV/동영상 프레임 | `../forensic-video/SKILL.md` | — |
 | 자르기/필름스트립 | `../video-editor/SKILL.md` | — |
-| **문장 교정** | `../korean-writing-reviewer/SKILL.md` | **검토해줘 → 무조건 (보고서면)** |
+| **한국어 문체 윤문·교정** | `../humanize-korean/SKILL.md` | **검토해줘 → 무조건 (보고서면)** |
 | DLP 표 | `../dlp-leakage-detector/SKILL.md` | — |
 | **AI 탐지 / AI 흔적 포렌식** | `../ai-trace-detector/SKILL.md` | — |
 | **딥페이크 기술 레이더 & 포렌식** | `../deepfake-forensic-radar/SKILL.md` | — |
@@ -51,12 +52,12 @@ Antigravity 진입점. 먼저 `GEMINI.md`를 읽고, **레인 하나**만 고른
 | 같은 파일 중복 | `python scripts/dedup_files.py <폴더>` |
 | 압축파일 안에 뭐 있는지·zip 안 검사 | `python scripts/archive_survey.py <대상>` |
 | PDF 암호·PDF 이상한지 | `python scripts/pdf_audit.py <대상>` |
-| 카톡 DB·db 파일 안에 뭐 있는지 | `python scripts/sqlite_survey.py <대상>` (상세 쿼리는 lazyothers sqlite-evidence-query) |
+| 카톡 DB·db 파일 안에 뭐 있는지 | `python scripts/sqlite_survey.py <대상>` (상세 쿼리는 `../sqlite-evidence-query/SKILL.md`) |
 | 여러 시각 합쳐서 타임라인 | `python scripts/merge_timeline.py --manifest/--kakao/--exif/--stt` |
 | HWPX 문서 텍스트 추출·hwp 안에 뭐 있는지 | `python scripts/extract_hwpx.py <파일|폴더>` (바이너리 .hwp는 외부 도구 영역) |
 | 신구대비·두 문서 차이 비교 | `python scripts/doc_diff.py old.txt new.txt --markdown` |
 | 서증 목록·증거설명서 초안 | `python scripts/court_evidence_sheet.py <manifest.json> --party 갑` |
-| 서증을 법원 제출 문서로·lazyothers로 넘겨줘 | `python scripts/evidence_export.py <manifest.json> -o evidence.json` → lazyothers `generate_evidence_doc.py`/`bind_court_pdf.py`가 소비 |
+| 서증을 법원 제출 문서로 변환·바인딩 | `python scripts/evidence_export.py <manifest.json> -o evidence.json` → `scripts/generate_evidence_doc.py` / `scripts/bind_court_pdf.py`가 소비 |
 | DLP 로그 정리·유출 체크리스트 표 | `python scripts/dlp_log_table.py <로그.csv>` (탐지 아님 — 확보된 로그의 재배열) |
 | 닉네임이 어디 사이트에 있는지 | `python scripts/osint_username.py <닉네임>` (⚠️ 외부 쿼리 — 의뢰인 동의 필요) |
 | 다른 컴퓨터에서 환경 설치 | `python scripts/setup_forensic_env.py [--check]` |

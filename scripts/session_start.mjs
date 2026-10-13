@@ -68,6 +68,7 @@ const context = additionalContext();
 if (context) {
 	process.stdout.write(
 		`${JSON.stringify({
+			additionalContext: context,
 			hookSpecificOutput: {
 				hookEventName: hookEventName(raw),
 				additionalContext: context,

@@ -1,11 +1,4 @@
-"""플러그인 설치 스모크 — install.sh / install.ps1 의 플러그인 목록 정합성.
-
-네트워크 없이 인스톨러 스크립트 자체를 검증한다:
-- 셸/파워셸 인스톨러가 같은 플러그인 집합·같은 clone URL을 쓰는지
-- --check 진단 목록과 clone 목록이 일치하는지
-- config.json 활성화 목록이 clone 목록을 덮는지
-- URL이 https GitHub clone 형식인지
-"""
+"""플러그인 설치 스모크 — install.sh / install.ps1 의 2대 통합 플러그인 목록 정합성."""
 import re
 from pathlib import Path
 
@@ -14,10 +7,8 @@ INSTALL_SH = (REPO_ROOT / "install.sh").read_text(encoding="utf-8")
 INSTALL_PS1 = (REPO_ROOT / "install.ps1").read_text(encoding="utf-8")
 
 EXPECTED_PLUGINS = {
-    "lazyantigravity",
-    "lazyforensic",
-    "lazyothers",
-    "lazydiagram",
+    "lazyargon",
+    "lazyargon-workspace",
 }
 
 
@@ -26,6 +17,8 @@ def _sh_plugin_map():
     assert m, "install.sh PLUGINS block not found"
     pairs = {}
     for line in m.group(1).splitlines():
+        if not line.strip():
+            continue
         name, url = line.split()
         pairs[name] = url
     return pairs
@@ -56,15 +49,15 @@ def test_urls_are_https_github_clones():
 
 
 def test_check_mode_covers_all_plugins():
-    sh_check = re.search(r"for name in ([a-z0-9_ ]+); do", INSTALL_SH)
+    sh_check = re.search(r"for name in ([a-z0-9_-]+(?: [a-z0-9_-]+)*); do", INSTALL_SH)
     assert sh_check, "install.sh --check plugin loop not found"
     assert set(sh_check.group(1).split()) == EXPECTED_PLUGINS
 
     ps_check = re.search(
-        r'\$repos = @\("([a-z0-9_",\s]+)"\)', INSTALL_PS1
+        r'\$repos = @\("([a-z0-9_",\s-]+)"\)', INSTALL_PS1
     )
     assert ps_check, "install.ps1 -Check repo list not found"
-    assert set(re.findall(r'"([a-z0-9_]+)"', ps_check.group(0))) == EXPECTED_PLUGINS
+    assert set(re.findall(r'"([a-z0-9_-]+)"', ps_check.group(0))) == EXPECTED_PLUGINS
 
 
 def test_config_merge_activates_all_plugins():
@@ -73,15 +66,15 @@ def test_config_merge_activates_all_plugins():
             f"install.sh config merge missing {name}"
         )
         assert re.search(
-            rf"{name}\s*=\s*@{{\s*enabled = \$true \s*}}", INSTALL_PS1
+            rf'"{re.escape(name)}"\s*=\s*@\{{\s*enabled = \$true\s*\}}', INSTALL_PS1
         ), f"install.ps1 default config missing {name}"
 
 
 def test_extracted_skills_not_stale_in_lazyothers():
-    """분리된 스킬이 lazyothers에 중복으로 남아 있지 않아야 한다."""
+    """분리된 스킬이 lazyargon-workspace에 중복으로 남아 있지 않아야 한다."""
     skills_dir = REPO_ROOT / "skills"
     assert not (skills_dir / "diagram-design").exists(), (
-        "diagram-design must live only in the lazydiagram plugin repo"
+        "diagram-design must live only in the lazyargon plugin repo"
     )
 
 

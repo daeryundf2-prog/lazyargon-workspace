@@ -8,7 +8,6 @@
     "url": "https://github.com/daeryundf2-prog"
   },
   "license": "MIT",
-  "skills": "./skills/",
   "hooks": "./hooks.json",
   "mcpServers": "./mcp_config.json",
   "pythonDependencies": "./requirements.txt",

@@ -22,9 +22,13 @@ while [ -L "$SELF" ]; do
   esac
 done
 ROOT="$(CDPATH= cd -P "$(dirname "$SELF")/.." && pwd)"
-# 우선순위: $LF_PYTHON > setup_forensic_env.py가 만든 ~/.lfenv venv > 시스템 python3
+# 우선순위: $LF_PYTHON > $LO_PYTHON > $ROOT/.venv/bin/python > $HOME/.lfenv/bin/python > python3
 if [ -n "${LF_PYTHON:-}" ]; then
   PY="$LF_PYTHON"
+elif [ -n "${LO_PYTHON:-}" ]; then
+  PY="$LO_PYTHON"
+elif [ -x "$ROOT/.venv/bin/python" ]; then
+  PY="$ROOT/.venv/bin/python"
 elif [ -x "$HOME/.lfenv/bin/python" ]; then
   PY="$HOME/.lfenv/bin/python"
 else

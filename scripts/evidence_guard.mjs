@@ -99,6 +99,8 @@ function scanStrings(sources) {
 	const out = [];
 	for (const s of sources) {
 		if (s.parsed !== undefined) {
+			if (s.parsed?.toolCall?.args?.CommandLine) out.push(String(s.parsed.toolCall.args.CommandLine));
+			if (s.parsed?.toolCall?.args?.TargetFile) out.push(String(s.parsed.toolCall.args.TargetFile));
 			deepCollectPathish(s.parsed, out);
 			// JSON 파싱에 성공하면 원문은 재검사하지 않는다 (content 과차단 방지)
 		} else {
@@ -255,14 +257,17 @@ async function main() {
 			console.error('[HINT] Evidence files are read-only. 사본도 같은 확장자(.raw/.E01 등)면 차단된다 —');
 			console.error('       사본은 확장자를 바꿔 보관(예: img.raw → img.raw.analysis.txt)하거나 증거 디렉토리 밖에서 작업.');
 			console.error('       이것은 best-effort 가드다. 증거 디렉토리는 OS 읽기전용(chmod 444)을 병행할 것.');
+			process.stdout.write(JSON.stringify({ decision: 'deny', reason: `[FORENSIC INTEGRITY GUARD] Write operation BLOCKED — ${violation}` }) + '\n');
 			process.exit(1);
 		}
+		process.stdout.write(JSON.stringify({ decision: 'allow' }) + '\n');
 		process.exit(0);
 	}
 
 	if (hookType === 'post-tool-use') {
 		const targetFile = extractTarget(sources);
 		if (!targetFile || !fs.existsSync(targetFile)) {
+			process.stdout.write('{}\n');
 			process.exit(0);
 		}
 
@@ -324,9 +329,11 @@ async function main() {
 				fs.appendFileSync(auditLogPath, JSON.stringify(entry) + '\n', 'utf8');
 			} catch {}
 		}
+		process.stdout.write('{}\n');
 		process.exit(0);
 	}
 
+	process.stdout.write('{}\n');
 	process.exit(0);
 }
 

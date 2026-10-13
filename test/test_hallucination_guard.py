@@ -86,14 +86,16 @@ class HallucinationGuardTests(unittest.TestCase):
         self.assertTrue(any("hallucination_guard" in c for c in cmds))
         self.assertTrue(any("evidence_guard" in c for c in cmds))
         hall = [h for h in first if "hallucination_guard" in h["command"]][0]
-        self.assertEqual(hall["failurePolicy"], "FAIL_CLOSED")
-        self.assertIn("보고서", hall["statusMessage"])
+        self.assertEqual(hall["type"], "command")
+        self.assertNotIn("failurePolicy", hall)
+        self.assertNotIn("statusMessage", hall)
+        self.assertNotIn("PostCompact", data["hooks"])
         # bash 매처: 리다이렉트 쓰기도 같은 게이트를 통과한다 (구버전 우회 경로)
         bash_matchers = [g for g in post if "bash" in g["matcher"]]
         self.assertTrue(bash_matchers)
         bash_hall = [h for h in bash_matchers[0]["hooks"] if "hallucination_guard" in h["command"]]
         self.assertTrue(bash_hall)
-        self.assertEqual(bash_hall[0]["failurePolicy"], "FAIL_CLOSED")
+        self.assertEqual(bash_hall[0]["type"], "command")
 
     def test_negation_context_is_not_a_violation(self):
         with tempfile.TemporaryDirectory() as tmp:

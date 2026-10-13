@@ -2,15 +2,9 @@
   "hooks": {
     "SessionStart": [
       {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${PLUGIN_ROOT}/scripts/session_start.mjs\"",
-            "timeout": 5,
-            "statusMessage": "LazyArgon Workspace: Loading host contract",
-            "failurePolicy": "FAIL_OPEN"
-          }
-        ]
+        "type": "command",
+        "command": "node \"${PLUGIN_ROOT:-.}/scripts/session_start.mjs\"",
+        "timeout": 5
       }
     ],
     "PreToolUse": [
@@ -19,10 +13,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${PLUGIN_ROOT}/scripts/evidence_guard.mjs\" pre-tool-use",
-            "timeout": 5,
-            "statusMessage": "LazyArgon Workspace: Guarding Evidence Integrity (Write-Lock)",
-            "failurePolicy": "FAIL_CLOSED"
+            "command": "node \"${PLUGIN_ROOT:-.}/scripts/evidence_guard.mjs\" pre-tool-use",
+            "timeout": 5
           }
         ]
       }
@@ -33,24 +25,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${PLUGIN_ROOT}/scripts/evidence_guard.mjs\" post-tool-use",
-            "timeout": 5,
-            "statusMessage": "LazyArgon Workspace: Logging SHA-256 Audit Trail",
-            "failurePolicy": "FAIL_OPEN"
+            "command": "node \"${PLUGIN_ROOT:-.}/scripts/evidence_guard.mjs\" post-tool-use",
+            "timeout": 5
           },
           {
             "type": "command",
-            "command": "node \"${PLUGIN_ROOT}/scripts/hallucination_guard.mjs\"",
-            "timeout": 30,
-            "statusMessage": "LazyArgon Workspace: Verifying report (보고서/검토해줘 무조건 검증)",
-            "failurePolicy": "FAIL_CLOSED"
+            "command": "node \"${PLUGIN_ROOT:-.}/scripts/hallucination_guard.mjs\"",
+            "timeout": 30
           },
           {
             "type": "command",
-            "command": "node \"${PLUGIN_ROOT}/scripts/legal_factuality_guard.mjs\"",
-            "timeout": 5,
-            "statusMessage": "LazyArgon Workspace: Legal factuality guard (조문/판례 날조 검증)",
-            "failurePolicy": "FAIL_CLOSED"
+            "command": "node \"${PLUGIN_ROOT:-.}/scripts/legal_factuality_guard.mjs\"",
+            "timeout": 5
           }
         ]
       },
@@ -59,17 +45,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${PLUGIN_ROOT}/scripts/hallucination_guard.mjs\"",
-            "timeout": 30,
-            "statusMessage": "LazyArgon Workspace: Verifying forensic report (shell redirect)",
-            "failurePolicy": "FAIL_CLOSED"
+            "command": "node \"${PLUGIN_ROOT:-.}/scripts/hallucination_guard.mjs\"",
+            "timeout": 30
           },
           {
             "type": "command",
-            "command": "node \"${PLUGIN_ROOT}/scripts/legal_factuality_guard.mjs\"",
-            "timeout": 5,
-            "statusMessage": "LazyArgon Workspace: Legal factuality guard (shell redirect)",
-            "failurePolicy": "FAIL_CLOSED"
+            "command": "node \"${PLUGIN_ROOT:-.}/scripts/legal_factuality_guard.mjs\"",
+            "timeout": 5
           }
         ]
       },
@@ -78,24 +60,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${PLUGIN_ROOT}/scripts/legal_factuality_guard.mjs\"",
-            "timeout": 5,
-            "statusMessage": "LazyArgon Workspace: Legal factuality guard (MCP document)",
-            "failurePolicy": "FAIL_CLOSED"
-          }
-        ]
-      }
-    ],
-    "PostCompact": [
-      {
-        "matcher": "manual|auto",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${PLUGIN_ROOT}/scripts/session_start.mjs\"",
-            "timeout": 5,
-            "statusMessage": "LazyArgon Workspace: Restoring host contract",
-            "failurePolicy": "FAIL_OPEN"
+            "command": "node \"${PLUGIN_ROOT:-.}/scripts/legal_factuality_guard.mjs\"",
+            "timeout": 5
           }
         ]
       }

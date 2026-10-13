@@ -102,6 +102,7 @@ function extractTarget(sources) {
 	if (env) return env;
 	for (const s of sources) {
 		if (s.parsed !== undefined) {
+			if (s.parsed?.toolCall?.args?.TargetFile) return String(s.parsed.toolCall.args.TargetFile);
 			const found = [];
 			extractTargetFromNode(s.parsed, found);
 			for (const { value, isCommand } of found) {
@@ -241,6 +242,7 @@ const PYTHON_CANDIDATES = process.platform === 'win32'
 		{ cmd: 'python3', pre: [] },
 	]
 	: [
+		...(fs.existsSync(join(root, '.venv', 'bin', 'python')) ? [{ cmd: join(root, '.venv', 'bin', 'python'), pre: [] }] : []),
 		{ cmd: 'python3', pre: [] },
 		{ cmd: 'python', pre: [] },
 		{ cmd: 'py', pre: ['-3'] },
@@ -330,12 +332,14 @@ async function main() {
 		console.error(out.slice(0, 1200));
 		console.error('[HINT] 금지문구 제거, 해시는 audit.json / .lazyforensic/audit_trail.jsonl 근거만 사용, 없으면 미확인/미측정으로 둘 것. 수정 후 재시도.');
 		console.error(`[CMD] python scripts/verify_report.py "${targetFile}" --evidence <audit.json|audit_trail.jsonl> --json`);
+		process.stdout.write(JSON.stringify({ decision: 'block', reason: `[HALLUCINATION GUARD] 보고서 검증 FAIL — ${path.basename(targetFile)}` }) + '\n');
 		process.exit(1);
 	}
 
 	if (res.stdout && res.stdout.includes('[WARN]')) {
 		console.error(`[HALLUCINATION GUARD] WARN — ${path.basename(targetFile)}: ${res.stdout.slice(0, 600)}`);
 	}
+	process.stdout.write('{}\n');
 	process.exit(0);
 }
 

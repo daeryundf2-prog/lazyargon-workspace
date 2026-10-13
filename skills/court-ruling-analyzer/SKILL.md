@@ -39,7 +39,7 @@ ${PLUGIN_ROOT}/scripts/py ${PLUGIN_ROOT}/scripts/analyze_court_ruling.py 판결�
 - 판결문 양식은 법원·연도마다 다르다. 헤더를 못 찾으면 "전문" 1개 섹션으로
   반환하므로, 그 경우 원문을 직접 보고 구조를 확인한다.
 - 추출된 법령·판례 **인용은 실제 조문·판결문으로 대조**해야 한다 — legal-case-search
-  스킬(`lazyforensic_korean_law` 또는 `lazyantigravity_korean_law_offline`)로 원문을 가져와 검증하라. AI가 조문 번호를 지어내는
+  스킬(`korean_law` MCP 및 `verify_legal_factuality.py`)로 원문과 조문 상한을 검증하라. AI가 조문 번호를 지어내는
   할루시네이션은 이 대조로만 잡힌다.
 - 쟁점표의 "법원 판단" 열은 원문 인용을 원칙으로 한다. 요약·윤문이 필요하면
   humanize-korean을 쓰되 법률 용어는 유지한다.

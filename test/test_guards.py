@@ -288,6 +288,17 @@ class StopClaimGuardTests(unittest.TestCase):
             self.assertEqual(out.get("decision"), "block")
             self.assertIn("Fact-Retracing", out.get("reason", ""))
 
+    def test_antigravity_native_toolcall_commandline(self):
+        deny_payload = json.dumps({"toolCall": {"name": "run_command", "args": {"CommandLine": "cp x.bin evidence/usb.raw"}}})
+        proc_deny = run_guard("evidence_guard.mjs", ["pre-tool-use"], stdin_payload=deny_payload)
+        self.assertEqual(proc_deny.returncode, 1)
+        self.assertEqual(json.loads(proc_deny.stdout)["decision"], "deny")
+
+        allow_payload = json.dumps({"toolCall": {"name": "run_command", "args": {"CommandLine": "ls -la out/"}}})
+        proc_allow = run_guard("evidence_guard.mjs", ["pre-tool-use"], stdin_payload=allow_payload)
+        self.assertEqual(proc_allow.returncode, 0)
+        self.assertEqual(json.loads(proc_allow.stdout)["decision"], "allow")
+
     def test_hooks_json_has_stop_hooks(self):
         hooks_path = ROOT / "hooks.json"
         data = json.loads(hooks_path.read_text(encoding="utf-8"))

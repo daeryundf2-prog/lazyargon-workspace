@@ -1,0 +1,22 @@
+# Large optional MCP deps are local builds, not distribution artifacts
+korean-law-mcp/node_modules/ export-ignore
+korean-law-mcp/node_modules export-ignore
+korean-law-mcp/build/ export-ignore
+# Local audit trails and outputs
+.lazyforensic/ export-ignore
+audit_trail.jsonl export-ignore
+
+# Normalize line endings for hooks/scripts
+*.json text eol=lf
+*.md text eol=lf
+*.mjs text eol=lf
+*.ts text eol=lf
+*.py text eol=lf
+*.sh text eol=lf
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Contract files are pinned by SHA-256 — git must not alter a single byte.
+# (last rule wins, so this stays below the wildcard rules)
+contracts/** -text

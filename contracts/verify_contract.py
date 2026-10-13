@@ -23,7 +23,8 @@ from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_SCHEMA = ROOT / "schemas" / "lazy-evidence-case-v1.json"
+_SCHEMAS_DEFAULT = ROOT / "schemas" / "lazy-evidence-case-v1.json"
+DEFAULT_SCHEMA = _SCHEMAS_DEFAULT if _SCHEMAS_DEFAULT.exists() else (ROOT / "contracts" / "lazy-evidence-case-v1.json")
 
 _TYPE_MAP = {
     "object": dict, "array": list, "string": str,
@@ -142,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.drift_check is not None:
         return 0 if drift_check(args.drift_check) else 1
     if not args.doc:
-        ap.error("doc 또는 --drift-check 중 하나는 필요합니다")
+        return 0 if drift_check(DEFAULT_SCHEMA) else 1
 
     schema = json.loads(args.schema.read_text(encoding="utf-8"))
     doc = json.loads(Path(args.doc).read_text(encoding="utf-8"))

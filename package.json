@@ -1,0 +1,31 @@
+{
+  "name": "lazyargon-workspace",
+  "version": "1.0.4",
+  "description": "Aggregated Antigravity plugin for Korean document processing (HWP/HWPX), Legal-Tech evidence stamping, Humanize KR AI writing refinement, and external MCP tools.",
+  "author": "daeryundf2-prog",
+  "engines": {
+    "node": ">=20.0.0",
+    "python": ">=3.12"
+  },
+  "keywords": [
+    "antigravity",
+    "antigravity-plugin",
+    "mcp",
+    "kordoc",
+    "context7",
+    "hwpx",
+    "hwp",
+    "court-evidence",
+    "legal-tech",
+    "humanize-korean",
+    "im-not-ai",
+    "korean-writing"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "setup": "node scripts/sync-mcp.mjs",
+    "sync": "node scripts/sync-mcp.mjs",
+    "test": "node scripts/run_tests.mjs"
+  }
+}

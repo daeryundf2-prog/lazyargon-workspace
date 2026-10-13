@@ -1,0 +1,74 @@
+#!/bin/sh
+# lazyothers — 어느 디렉터리에서든 스크립트를 부르는 CLI 래퍼 (POSIX sh)
+# 설치: PATH에 이 bin/ 디렉터리를 추가하거나 /usr/local/bin에 심볼릭 링크
+#   export PATH="$HOME/devin/lazyothers/bin:$PATH"
+set -eu
+
+SCRIPT="$0"
+case "$SCRIPT" in
+  */*) ;;
+  *) SCRIPT="$(command -v "$SCRIPT")" ;;
+esac
+LINKS=0
+while [ -L "$SCRIPT" ]; do
+  LINKS=$((LINKS + 1))
+  [ "$LINKS" -le 40 ] || { printf '%s\n' 'Symlink chain too long' >&2; exit 2; }
+  DIR="$(CDPATH= cd -P "$(dirname "$SCRIPT")" && pwd)"
+  TARGET="$(readlink "$SCRIPT")"
+  case "$TARGET" in
+    /*) SCRIPT="$TARGET" ;;
+    *) SCRIPT="$DIR/$TARGET" ;;
+  esac
+done
+ROOT="$(CDPATH= cd -P "$(dirname "$SCRIPT")/.." && pwd)"
+# 우선순위: $LF_PYTHON > $LO_PYTHON > $ROOT/.venv/bin/python > $HOME/.lfenv/bin/python > python3
+if [ -n "${LF_PYTHON:-}" ]; then
+  PY="$LF_PYTHON"
+elif [ -n "${LO_PYTHON:-}" ]; then
+  PY="$LO_PYTHON"
+elif [ -x "$ROOT/.venv/bin/python" ]; then
+  PY="$ROOT/.venv/bin/python"
+elif [ -x "$HOME/.lfenv/bin/python" ]; then
+  PY="$HOME/.lfenv/bin/python"
+else
+  PY="${PY:-python3}"
+fi
+
+usage() {
+  cat <<EOF
+lazyothers — 법률/문서 스크립트 CLI 래퍼 (로컬 전용)
+
+  lazyothers doc <파일>            HWP/HWPX/PDF 문서 텍스트 추출
+  lazyothers sheet <evidence.json> 증거설명서 생성 (lazyforensic export 출력 호환)
+  lazyothers stamp <pdf>           증거 표찰 스탬핑
+  lazyothers bind <evidence.json>  표찰 PDF 병합 바인더 (ECFS 용량 분할)
+  lazyothers draft                 법률 문서 초안 (변호사 검토 전제)
+  lazyothers pii <파일>            한국어 개인정보 마스킹
+  lazyothers ruling <파일>         판결문 구조 분석
+  lazyothers flow <파일>           금융 거래 흐름 추적
+  lazyothers db <쿼리>             증거 DB 조회
+  lazyothers integrity <대상>      증거 무결성 감사
+  lazyothers certify <파일>        증거 파일 인증
+  lazyothers morph <파일>          Kiwi 형태소 그라운딩
+EOF
+}
+
+[ $# -lt 1 ] && { usage; exit 2; }
+cmd="$1"; shift
+
+case "$cmd" in
+  doc)       exec "$PY" "$ROOT/scripts/parse_korean_doc.py" "$@" ;;
+  sheet)     exec "$PY" "$ROOT/scripts/generate_evidence_doc.py" "$@" ;;
+  stamp)     exec "$PY" "$ROOT/scripts/stamp_evidence.py" "$@" ;;
+  bind)      exec "$PY" "$ROOT/scripts/bind_court_pdf.py" "$@" ;;
+  draft)     exec "$PY" "$ROOT/scripts/generate_legal_draft.py" "$@" ;;
+  pii)       exec "$PY" "$ROOT/scripts/mask_korean_pii.py" "$@" ;;
+  ruling)    exec "$PY" "$ROOT/scripts/analyze_court_ruling.py" "$@" ;;
+  flow)      exec "$PY" "$ROOT/scripts/trace_financial_flow.py" "$@" ;;
+  db)        exec "$PY" "$ROOT/scripts/query_evidence_db.py" "$@" ;;
+  integrity) exec "$PY" "$ROOT/scripts/audit_evidence_integrity.py" "$@" ;;
+  certify)   exec "$PY" "$ROOT/scripts/certify_evidence_file.py" "$@" ;;
+  morph)     exec "$PY" "$ROOT/scripts/korean_morph_grounding.py" "$@" ;;
+  -h|--help|help) usage ;;
+  *) echo "알 수 없는 명령: $cmd" >&2; usage; exit 2 ;;
+esac

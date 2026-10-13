@@ -18,6 +18,16 @@ function getLogFileArg(argv) {
 	return null;
 }
 
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+	process.stdout.write(
+		"Usage: node scripts/setup_korean_law.mjs [--check] [--log-file <path>] [--help|-h]\n" +
+		"  --check           Check korean-law-mcp build and LAW_OC key status without installing\n" +
+		"  --log-file <path> Append ToS acknowledgment status line to the given file\n" +
+		"  -h, --help        Show this help message and exit 0\n",
+	);
+	process.exit(0);
+}
+
 // --check: 빌드/키 상태만 출력하고 설치하지 않는다 (README 용량 안내용 진단).
 if (process.argv.includes("--check")) {
 	const built = existsSync(join(pkg, "build", "index.js"));

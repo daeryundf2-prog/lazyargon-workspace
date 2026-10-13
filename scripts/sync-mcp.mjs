@@ -46,6 +46,9 @@ try {
   const mcpConfig = JSON.parse(fs.readFileSync(mcpConfigPath, "utf-8"));
   const bundledTools = fs.readdirSync(sourceMcpDir).filter((d) => fs.statSync(path.join(sourceMcpDir, d)).isDirectory());
   const registeredServers = Object.keys(mcpConfig.mcpServers || {});
+  if (!registeredServers.includes("korean_law")) {
+    console.warn("[lazyothers:sync] WARN: korean_law not in mcp_config.json");
+  }
   console.log(`[lazyothers:sync] Bundled tools: ${bundledTools.join(", ")}`);
   console.log(`[lazyothers:sync] Registered servers: ${registeredServers.join(", ")}`);
   for (const tool of bundledTools) {

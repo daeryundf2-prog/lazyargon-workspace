@@ -82,9 +82,15 @@ function extractTarget(sources) {
 	if (env) return env;
 	for (const s of sources) {
 		if (s.parsed !== undefined) {
+			if (s.parsed?.toolCall?.args?.TargetFile) return String(s.parsed.toolCall.args.TargetFile);
 			const found = [];
 			extractTargetFromNode(s.parsed, found);
 			if (found.length > 0) return found[0];
+			const cmdStr = s.parsed?.toolCall?.args?.CommandLine || s.parsed?.command || s.parsed?.tool_input?.command || "";
+			if (cmdStr) {
+				const m = String(cmdStr).match(PATH_LIKE_RE);
+				if (m) return m[1];
+			}
 		}
 	}
 	for (const s of sources) {
@@ -161,7 +167,8 @@ async function main() {
 		verifyArgs.push("--claim-ledger", ledgerFile);
 	}
 
-	const pyCandidates = process.platform === "win32" ? ["python", "py", "python3"] : ["python3", "python"];
+	const venvPy = join(root, ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
+	const pyCandidates = [...(fs.existsSync(venvPy) ? [venvPy] : []), ...(process.platform === "win32" ? ["python", "py", "python3"] : ["python3", "python"])];
 	let res = null;
 	for (const py of pyCandidates) {
 		res = spawnSync(py, verifyArgs, {
@@ -189,9 +196,11 @@ async function main() {
 		}
 		console.error(`[LEGAL FACTUALITY GUARD] FAIL_CLOSED: ${reason}`);
 		console.error(`[HINT] 허위 조문 번호(예: 민법 1118조 초과) 및 가짜 판례 번호를 수정하십시오.`);
+		process.stdout.write(JSON.stringify({ decision: "block", reason }) + "\n");
 		process.exit(1);
 	}
 
+	process.stdout.write("{}\n");
 	process.exit(0);
 }
 
