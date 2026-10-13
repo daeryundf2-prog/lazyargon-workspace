@@ -440,6 +440,7 @@ import { fileURLToPath } from 'node:url';
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
 	main().catch((err) => {
 		console.error(`[JSON SCHEMA GUARD] Error: ${err.message}`);
+		process.stdout.write('{}\n');
 		process.exit(0);
 	});
 }

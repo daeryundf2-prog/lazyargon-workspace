@@ -911,6 +911,53 @@ class AntigravityRuntimeTranscriptPayloadTests(unittest.TestCase):
             out = json.loads(proc.stdout)
             self.assertEqual(out.get("decision"), "block")
 
+    def test_hooks_json_commands_e2e_via_sh_c(self):
+        hooks_data = json.loads((ROOT / "hooks.json").read_text(encoding="utf-8"))
+        env = os.environ.copy()
+        env.pop("PLUGIN_ROOT", None)
+
+        def run_sh(cmd: str, payload: str):
+            return subprocess.run(
+                ["sh", "-c", cmd],
+                input=payload,
+                text=True,
+                encoding="utf-8",
+                capture_output=True,
+                cwd=str(ROOT),
+                env=env,
+            )
+
+        # 1) SessionStart command
+        ss_entry = hooks_data["hooks"]["SessionStart"][0]
+        ss_cmd = ss_entry["command"] if "command" in ss_entry else ss_entry["hooks"][0]["command"]
+        proc_ss = run_sh(ss_cmd, json.dumps({"hook_event_name": "SessionStart"}))
+        self.assertEqual(proc_ss.returncode, 0, proc_ss.stderr)
+        ss_out = json.loads(proc_ss.stdout)
+        self.assertIn("injectSteps", ss_out)
+        self.assertIn("hookSpecificOutput", ss_out)
+        self.assertTrue(ss_out["injectSteps"][0]["systemMessage"]["systemMessage"])
+        self.assertTrue(ss_out["hookSpecificOutput"]["additionalContext"])
+
+        # 2) PreToolUse command (deny & allow)
+        pre_cmd = hooks_data["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+        proc_deny = run_sh(pre_cmd, json.dumps({"toolCall": {"name": "write_to_file", "args": {"TargetFile": "evidence/disk.raw"}}}))
+        self.assertEqual(proc_deny.returncode, 1)
+        deny_out = json.loads(proc_deny.stdout)
+        self.assertEqual(deny_out.get("decision"), "deny")
+        self.assertTrue(deny_out.get("reason"))
+
+        proc_allow = run_sh(pre_cmd, json.dumps({"toolCall": {"name": "write_to_file", "args": {"TargetFile": "out/note.md"}}}))
+        self.assertEqual(proc_allow.returncode, 0, proc_allow.stderr)
+        allow_out = json.loads(proc_allow.stdout)
+        self.assertEqual(allow_out.get("decision"), "allow")
+
+        # 3) PostToolUse commands (pass -> {})
+        post_hooks = [h["command"] for grp in hooks_data["hooks"]["PostToolUse"] for h in grp["hooks"]]
+        for cmd in post_hooks:
+            proc_post = run_sh(cmd, json.dumps({"conversationId": "conv-noop"}))
+            self.assertEqual(proc_post.returncode, 0, f"{cmd}: {proc_post.stderr}")
+            self.assertEqual(json.loads(proc_post.stdout), {})
+
 
 if __name__ == "__main__":
     unittest.main()

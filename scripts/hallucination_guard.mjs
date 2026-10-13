@@ -531,6 +531,7 @@ async function main() {
 		for (const a of attempts) console.error(`  - ${a}`);
 		console.error('[HINT] python3 설치 후 이 게이트가 자동으로 다시 작동한다. 설치 전에는 보고서 검증이 수동으로만 가능하다:');
 		console.error(`[CMD] python scripts/verify_report.py "${targetFile}" --json`);
+		process.stdout.write('{}\n');
 		process.exit(0);
 	}
 	if (spawnError) {
@@ -542,6 +543,7 @@ async function main() {
 	if (res.status === 2) {
 		// verify_report.py: 보고서를 찾지 못함 — 대상 추정이 틀렸을 가능성. 차단하지 않고 알린다.
 		console.error(`[HALLUCINATION GUARD] 검증 대상 미발견(스킵) — 추정 경로가 틀렸을 수 있음: ${targetFile}`);
+		process.stdout.write('{}\n');
 		process.exit(0);
 	}
 	if (res.status !== 0) {

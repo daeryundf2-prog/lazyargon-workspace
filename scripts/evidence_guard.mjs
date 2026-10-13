@@ -495,6 +495,7 @@ async function main() {
 			fs.mkdirSync(auditDir, { recursive: true });
 			auditLogPath = path.join(auditDir, 'audit_trail.jsonl');
 		} catch {
+			process.stdout.write('{}\n');
 			process.exit(0); // 로그를 못 만들면 감사 기록도 없다 — 조용히 통과(FAIL_OPEN 훅)
 		}
 
@@ -502,6 +503,7 @@ async function main() {
 		try {
 			stat = fs.statSync(resolvedTarget);
 		} catch {
+			process.stdout.write('{}\n');
 			process.exit(0);
 		}
 

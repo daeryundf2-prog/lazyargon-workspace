@@ -391,6 +391,7 @@ async function main() {
 
 	if (!res || res.error) {
 		console.error(`[LEGAL FACTUALITY GUARD] UNAVAILABLE: python 실행 불가 — 검증이 수행되지 않았습니다 (무자격 통과 아님).`);
+		process.stdout.write("{}\n");
 		process.exit(0);
 	}
 

@@ -564,5 +564,8 @@ if (args[0] === '--check') {
 } else if (args[0] === '--version') {
 	console.log(GUARD_PACK_VERSION);
 } else {
-	hookMode();
+	hookMode().catch(() => {
+		process.stdout.write('{}\n');
+		process.exit(0);
+	});
 }
