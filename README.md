@@ -34,7 +34,7 @@
 
 ### A. Antigravity 플러그인으로 (권장 — 스킬 라우팅 + 무결성 훅 포함)
 
-저장소를 클론한 뒤 Antigravity에 플러그인으로 등록한다(`plugin.json` 매니페스트: `skills/`, `hooks/`, `mcpServers/` 등록). 이 경로에서만 다음이 자동으로 작동한다.
+저장소를 클론한 뒤 Antigravity에 플러그인으로 등록한다(`plugin.json` 매니페스트: `skills/`, `hooks.json`, `mcp_config.json` 등록). 이 경로에서만 다음이 자동으로 작동한다.
 
 - 세션 시작 시 `GEMINI.md` 호스트 계약 주입 (`SessionStart` 훅)
 - 증거 파일 쓰기 차단 시도 (`PreToolUse`, best-effort)
@@ -204,7 +204,7 @@ python scripts/korean_morph_forensic.py --evidence case/audit.json --report case
 python -m pytest test/ -v
 ```
 
-`.github/workflows/ci.yml`: Ubuntu/Windows 유닛 테스트 + 훅 가드 단언, korean-law-mcp 빌드+vitest.
+CI 워크플로: Ubuntu/Windows 유닛 테스트 + 훅 가드 단언, korean-law-mcp 빌드+vitest.
 
 ## Lazy 생태계 (레포 경계)
 

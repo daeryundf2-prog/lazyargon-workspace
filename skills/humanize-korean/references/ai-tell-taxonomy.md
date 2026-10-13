@@ -2,7 +2,7 @@
 
 LLM(ChatGPT·Claude·Gemini 등)이 생성한 한글 글에서 반복적으로 관찰되는 "AI 티" 패턴을 10개 대분류 × 서브 패턴으로 정리한다. 윤문 파이프라인의 진단·윤문·마무리 콜(diagnostician·monolith·finalizer)이 공유하는 단일 진실 원천(SSOT). 각 패턴마다 (1) 정의, (2) 시그니처 예문, (3) 심각도(S1 결정적 / S2 강함 / S3 약함), (4) 윤문 처방을 제공한다.
 
-> **v2.0 추가 (2026-05-07):** 한국 번역학계 8대 번역투 정통성 계보(이영옥 2001·김도훈 2009·김정우 2007·김혜영 2019 등) + 보고서 §III.3(8유형) 통합. **본진 신규 4건** — `A-16` 영어 대명사 직역 [S1] · `A-18` 관계절 좌향 수식 [S2] · `A-19` 이중 조사 결합 [S2] · `E-7` 청자 경어법 일관성 손실 [S2 · estimated]. **본진 보강 4건** — `A-15` 인지·발화 동사 분리 구문 처방 · `A-7` light verb construction 일반화(have/make/take/give) · `F-4` 영어 명사화 접미사(-tion·-ment·-ness·-ity) 통합 · `E-2` 진행형 '~고 있다' 자동 매핑 처방. **본진 hold 1건** — `A-17` 무정물·추상명사 '-들' 부착 [학술 강함, 외부 회차 양성 0건 → NMT 원본 회차 후 v2.1 재평가]. **post-editese 3축은 metric-only 트랙** — caveat C3(한국어 정량 검증 부재)에 따라 본진 ID 미부여, `metrics_v2.py` 14개 신규 함수로 운영(`deul_overuse_rate` 포함, A-17 hold 검증용). 학술 전문은 외부 SSOT `references/scholarship.md`에 보존(본진 슬림성). valid as of 2026-05.
+> **v2.0 추가 (2026-05-07):** 한국 번역학계 8대 번역투 정통성 계보(이영옥 2001·김도훈 2009·김정우 2007·김혜영 2019 등) + 보고서 §III.3(8유형) 통합. **본진 신규 4건** — `A-16` 영어 대명사 직역 [S1] · `A-18` 관계절 좌향 수식 [S2] · `A-19` 이중 조사 결합 [S2] · `E-7` 청자 경어법 일관성 손실 [S2 · estimated]. **본진 보강 4건** — `A-15` 인지·발화 동사 분리 구문 처방 · `A-7` light verb construction 일반화(have/make/take/give) · `F-4` 영어 명사화 접미사(-tion·-ment·-ness·-ity) 통합 · `E-2` 진행형 '~고 있다' 자동 매핑 처방. **본진 hold 1건** — `A-17` 무정물·추상명사 '-들' 부착 [학술 강함, 외부 회차 양성 0건 → NMT 원본 회차 후 v2.1 재평가]. **post-editese 3축은 metric-only 트랙** — caveat C3(한국어 정량 검증 부재)에 따라 본진 ID 미부여, `metrics_v2.py` 14개 신규 함수로 운영(`deul_overuse_rate` 포함, A-17 hold 검증용). 학술 전문은 외부 SSOT `scholarship.md`에 보존(본진 슬림성). valid as of 2026-05.
 >
 > **v1.6 추가 (2026-05-06):** KatFish(Park et al.) + LREAD 외부 정량 연구 기반 본진 신규 5건 — `C-11` 연결어미 뒤 쉼표 [S1, 4.84배 분리도] · `C-12` 쉼표 포함률 [S2] · `E-5` 쉼표 분절 평균 길이 [S2] · `E-6` 쉼표 전후 POS 다양성 [S2, 에세이·뉴스 한정] · `G-3` 안전 균형 lexicon [S2]. 본진 보강 2건 — `D-1`에 KatFish 검증 결산 lexicon 4종("결론적으로·따라서·이를 통해·그러므로") 정식 인용 + 임계, `F-4`에 한자어 명사화 접미사 3종("-성·-적·-화") 정식 명시 + 한 문서 12회 초과 임계. hold 2건(BN/VX 띄어쓰기 규칙성·페르소나-레지스터 불일치)은 본진 미등재 — `_workspace/v1.6-2026-05-06/`에 후보 발자취 보존.
 >
@@ -620,7 +620,7 @@ J. 시각 장식 남용 — J-1~J-4
 
 > **중요**: post-editese 3축(simplification·normalisation·interference)은 본진 패턴 ID 미부여 상태로 운영한다. 이유는 **caveat C3** verbatim — "Toral(2019)은 en→de, de→en, es→de, en→fr, zh→en의 5개 언어쌍을 다뤘고, **한국어는 포함되지 않았다**. 한국어에 대한 동일 결론은 합리적 추론이지만 정량적 검증은 미수행 상태다." 따라서 본진 패턴 ID는 토큰·구문 매칭 가능한 검증 시그널만 담고, 3축 합성 신호는 metric-only로 분리한다.
 
-`references/metrics_v2.py` 14개 신규 함수가 3축을 운영한다(모든 metric에 `speculative: true` 플래그 권고):
+`metrics_v2.py` 14개 신규 함수가 3축을 운영한다(모든 metric에 `speculative: true` 플래그 권고):
 
 - **simplification 축**: `lexical_diversity_ttr` · `lexical_density` · `ending_diversity` (Baker 1993; Toral 2019).
 - **normalisation 축**: `normalisation_score`(평서형 -다/된다/이다 집중률) · `da_streak_rate`(-다 4문장 연속 streak 카운트) (Baker 1993).
@@ -671,22 +671,22 @@ J. 시각 장식 남용 — J-1~J-4
   - `F-5` "~적 N" 복합 추상어 체인 (에이전트적 자율성·기술적 토대)
   - `H-4` 재정의 접속사 "즉" 남발
 - **v1.3** (2026-04-25): **본진 신규 1건 (C-9 숫자 괄호 인덱싱) + 본진 보강 1건 (I-2 결합형 변종)**, 그리고 **서브 패턴 발굴 운영 체계 도입**. v1.2 이후 멈춰 있던 패턴 발굴이 새 인프라로 깨진 회차:
-  - **본진 신규**: `C-9` 숫자 괄호 인덱싱 "1) 2) 3)" [S2] — `references/design-notes.md` (changelog) 회차 1에서 풀 후보 `cand-C-2026-001`이 6게이트 통과 후 승격
+  - **본진 신규**: `C-9` 숫자 괄호 인덱싱 "1) 2) 3)" [S2] — `design-notes.md` (changelog) 회차 1에서 풀 후보 `cand-C-2026-001`이 6게이트 통과 후 승격
   - **본진 보강**: `I-2` 시그니처 예문에 "X은 ~라는 점에 있다" 결합형 변종 4건 추가 — 풀 후보 `cand-I-2026-003`이 Gate 2.2(본진 변종)에서 `merged` 처리되며 흡수
   - **운영 인프라 5종 신설**:
   - **candidate 풀 신설** (과거 v1.3 후보 풀 아카이브, v1.5에서 본진 통합 완료) — detector·rewriter·naturalness-reviewer가 미분류 의심 패턴을 단일 그릇에 누적. 임시 ID(`cand-{대분류}-{YYYY}-{NNN}`)·4상태(pending/promoted/rejected/merged)·기각 사유 5종 라벨·90일 미재현 자동 만료 정책
   - **3개 에이전트 적재 채널 명문화** — detector(미분류 span)·rewriter(윤문 저항·반복 잔존)·naturalness-reviewer(외부 시각, voice profile 미주입)에 풀 적재 트리거·절차 추가. 적재 실패는 메인 파이프라인 막지 않음
   - **taxonomist 풀 운영자 역할 추가** — 4가지 trigger(사용자 명시 / pending 10건 / 단일 후보 occurrences ≥ 3 / 외부 PR) 기반 점검. 점검 6단계 절차와 changelog 표준 형식 명문화
-  - **외부 샘플 수집 파이프라인** (과거 v1.3 샘플 수집 정책 아카이브, `references/design-notes.md` 참조) — 4축 다양성 매트릭스(모델·장르·길이·작가), 4종 채널(사용자 자발·합성 샘플·공개 데이터·외부 contributor), 익명화·저작권 5대 정책
-  - **승격 자동 검증 체크리스트** (과거 v1.3 6-게이트 승격 기준 아카이브, `references/design-notes.md` 참조) — 6개 게이트(사전 점검·재현·본진 중복·분류 적합성·처방 적합성·본진 위계). 일부 게이트(0.2·0.3·1.1·1.2·5.2)는 향후 스크립트 자동화 가능
+  - **외부 샘플 수집 파이프라인** (과거 v1.3 샘플 수집 정책 아카이브, `design-notes.md` 참조) — 4축 다양성 매트릭스(모델·장르·길이·작가), 4종 채널(사용자 자발·합성 샘플·공개 데이터·외부 contributor), 익명화·저작권 5대 정책
+  - **승격 자동 검증 체크리스트** (과거 v1.3 6-게이트 승격 기준 아카이브, `design-notes.md` 참조) — 6개 게이트(사전 점검·재현·본진 중복·분류 적합성·처방 적합성·본진 위계). 일부 게이트(0.2·0.3·1.1·1.2·5.2)는 향후 스크립트 자동화 가능
   - **v1.3 발행 전 파일럿 회차 결과**:
     - **회차 1 (인프라 검증, 합성 샘플 2건)**: 미분류 후보 3건 발견 → promoted 1건(C-9 숫자 괄호 인덱싱) · hold 1건(메타 진입 '~을 살펴보면', Gate 1.3 분산 미달) · merged 1건(I-2 결합형). 인프라 작동 확인.
     - **회차 2 (외부 진짜 데이터, 뉴스핌 [AI로 읽는 경제] 시리즈 ① ② — ChatGPT 작성 명시 GPT 출력)**: 미분류 후보 5건 발견 → merged 2건(I-3 보강 '~다는 뜻이다' 결말 변종, H-3 보강 '이 점에서·이 관점에서·이 말은' 메타 진입 변종) · hold 3건(H-N 후보 '결국' 문두 단언 9회+, D-N 후보 'A가 아니라 B' 부정-긍정 대구 7회+, C-N 후보 5~8개 콤마 빠른 나열 4회). hold 3건은 Gate 1.3 분산 보호장치가 진짜 외부 데이터에서 정확히 작동한 결과 — 같은 GPT·같은 기자 시리즈의 노이즈가 본진을 오염시키지 않으면서 다음 회차에 다른 모델·다른 작가 데이터에서 재현되면 즉시 promoted 가능한 강력 후보로 풀에 누적
 - **v1.2** (2026-04-25): Issue #1(simonsez9510) 후속 — 패턴 신설 0건, **권한 위계와 운영 체계 추가**:
   - **권한 위계 §1~§6 신설** — 객관 분류 vs 작가 voice profile의 권한 경계 명문화. opt-in 명시 주입, 패턴 ID 단위 무력화만 허용, 자유 텍스트 mandate 금지, A-8·C-5·D-1~D-6 무력화 불가, naturalness-reviewer 분리 검증층 보존, 회귀 게이트 정책
   - **임계 완화 multiplier 캡표** — 일반 ≤ 2.0, D-1~D-6 ≤ 1.5, A-8·C-5 = 1.0 고정 (임계 우회를 통한 사실상 무력화 방지)
-  - **`author-context.yaml` 스키마** 신설 (과거 v1.2 스키마 아카이브, v1.5에서 제거됨 — `references/design-notes.md` 참조) — opt-in voice profile 주입 양식, Schema validator 책임(무력화 불가 disable 거부, multiplier 캡 위반 거부, prompt injection escape character 검증), Telemetry 정책(`voice_profile_log.json`)
+  - **`author-context.yaml` 스키마** 신설 (과거 v1.2 스키마 아카이브, v1.5에서 제거됨 — `design-notes.md` 참조) — opt-in voice profile 주입 양식, Schema validator 책임(무력화 불가 disable 거부, multiplier 캡 위반 거부, prompt injection escape character 검증), Telemetry 정책(`voice_profile_log.json`)
   - **에이전트 정의 갱신** — detector·rewriter·auditor에 voice profile 주입, naturalness-reviewer 의도적 미주입 명문화
   - **경로 토큰화** — SKILL.md 절대 경로 제거, `_workspace/`는 cwd 기준
-  - **다운스트림 caller reference** — `references/proposals/`(PR #3, simonsez9510 어댑터 reference, 메인테이너 SSOT 외부 격리)
+  - **다운스트림 caller reference** — 외부 proposals 아카이브(PR #3, simonsez9510 어댑터 reference, 메인테이너 SSOT 외부 격리)
 - 확장 원칙: 실전 입력에서 재현 2회 이상 + 인간 필자가 거의 안 쓰는 패턴만 서브 항목 추가.

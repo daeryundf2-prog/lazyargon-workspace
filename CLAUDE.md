@@ -8,7 +8,7 @@
 
 - `scripts/*.py` — 결정적 도구(파싱·스탬핑·게이트·eval). LLM 자가 보고 대신
   스크립트 수치가 SSOT다.
-- `skills/*/SKILL.md` — 스킬 실행 규칙. `references/`는 스킬 디렉터리 기준
+- `skills/*/SKILL.md` — 스킬 실행 규칙. `skills/*/references/`는 스킬 디렉터리 기준
   (`${SKILL_DIR}` 또는 스킬 폴더), `scripts/`는 저장소 루트 기준
   (`${PLUGIN_ROOT}` / `scripts/resolve_plugin_root.py`)이다.
   두 경로 기준을 한 명령줄에 섞지 않는다. `.claude-plugin`만 찾아 드라이브

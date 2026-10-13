@@ -62,7 +62,7 @@ Antigravity 진입점. 먼저 `GEMINI.md`를 읽고, **레인 하나**만 고른
 | 닉네임이 어디 사이트에 있는지 | `python scripts/osint_username.py <닉네임>` (⚠️ 외부 쿼리 — 의뢰인 동의 필요) |
 | 다른 컴퓨터에서 환경 설치 | `python scripts/setup_forensic_env.py [--check]` |
 
-터미널 단축: `bin/lazyforensic scan|stt|pii|manifest|sig|dedup|similar|exif|kw|archive|pdf|db|vcheck|vfp|afp|osint|timeline|sheet|export|dlp|audit|setup`
+터미널 단축: `bin/lazyforensic scan|triage|stt|pii|manifest|sig|dedup|similar|exif|kw|archive|pdf|db|vcheck|vfp|afp|osint|timeline|kakao|telegram|evtx|mft|memory|video|deepfake|timestamps|verify|sheet|export|dlp|audit|setup`
 venv 인지 리졸버: 위 표의 `python` 자리에 `scripts/py`를 쓰면 `~/.lfenv` 설치분을 자동으로 찾는다 (의존성 필요 스크립트에서 유용).
 
 ## Visual

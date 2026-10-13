@@ -293,3 +293,17 @@ class RegressionTests(unittest.TestCase):
         result = subprocess.run([str(second), "manifest", "--help"], capture_output=True,
                                 env={**os.environ, "LF_PYTHON": sys.executable}, cwd=self.root)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipIf(sys.platform == "win32",
+                     "bin/lazyforensic and bin/lazyothers are POSIX shell scripts")
+    def test_cli_subcommands_help(self):
+        env = {**os.environ, "LF_PYTHON": sys.executable}
+        lf = str(ROOT / "bin/lazyforensic")
+        lo = str(ROOT / "bin/lazyothers")
+        for sub in ("triage", "audit", "timeline", "kakao", "telegram", "dlp", "evtx", "mft", "memory", "video", "verify"):
+            res = subprocess.run([lf, sub, "--help"], capture_output=True, env=env, cwd=self.root)
+            self.assertEqual(res.returncode, 0, f"lazyforensic {sub} --help failed: {res.stderr}")
+        for sub in ("doc", "sheet", "stamp", "bind", "draft", "pii", "ruling", "flow", "db", "integrity", "certify", "morph"):
+            res = subprocess.run([lo, sub, "--help"], capture_output=True, env=env, cwd=self.root)
+            self.assertEqual(res.returncode, 0, f"lazyothers {sub} --help failed: {res.stderr}")
+

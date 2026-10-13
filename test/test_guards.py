@@ -660,8 +660,257 @@ class StatutoryBoundsTests(unittest.TestCase):
             self.assertTrue(any("법령 캐시" in e and "존재하지 않음" in e for e in data2s["errors"]))
 
 
+class AntigravityRuntimeTranscriptPayloadTests(unittest.TestCase):
+    """Antigravity language_server jsonhook 실제 런타임 페이로드 회귀 테스트.
+
+    PostToolUse 페이로드({"conversationId":"...","transcriptPath":"...","artifactDirectoryPath":"...","stepIdx":5})
+    및 compact transcript.jsonl(args 내부 문자열 이중 인용 \"...\") / transcript_full.jsonl 폴백 검증.
+    """
+
+    @staticmethod
+    def _write_compact_and_full_transcripts(logs_dir: Path, step_index: int, tool_name: str, args_dict: dict, truncate_compact: bool = False):
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        compact_args = {
+            k: json.dumps(v, ensure_ascii=False) if isinstance(v, (str, list, dict)) else v
+            for k, v in args_dict.items()
+        }
+        compact_step = {
+            "step_index": step_index,
+            "source": "MODEL",
+            "type": "PLANNER_RESPONSE",
+            "status": "DONE",
+            "tool_calls": [] if truncate_compact else [{"name": tool_name, "args": compact_args}],
+        }
+        if truncate_compact:
+            compact_step["truncated_fields"] = ["tool_calls"]
+        tool_result_step = {
+            "step_index": step_index + 1,
+            "source": "MODEL",
+            "type": "GENERIC",
+            "status": "DONE",
+            "content": "ok",
+        }
+        full_step = {
+            "step_index": step_index,
+            "source": "MODEL",
+            "type": "PLANNER_RESPONSE",
+            "status": "DONE",
+            "tool_calls": [{"name": tool_name, "args": args_dict}],
+        }
+        (logs_dir / "transcript.jsonl").write_text(
+            json.dumps(compact_step, ensure_ascii=False) + "\n" + json.dumps(tool_result_step, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        (logs_dir / "transcript_full.jsonl").write_text(
+            json.dumps(full_step, ensure_ascii=False) + "\n" + json.dumps(tool_result_step, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+    def test_post_tool_use_markdown_guard_via_artifact_dir_and_compact_transcript(self):
+        lazyargon_md_guard = ROOT.parent / "lazyargon" / "scripts" / "markdown_structure_guard.mjs"
+        script_paths = [ROOT / "scripts" / "markdown_structure_guard.mjs"]
+        if lazyargon_md_guard.exists():
+            script_paths.append(lazyargon_md_guard)
+
+        for script_path in script_paths:
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                brain_dir = tmp_path / "brain" / "conv-123"
+                logs_dir = brain_dir / ".system_generated" / "logs"
+
+                broken_md = tmp_path / "broken_table.md"
+                broken_md_content = "# 보고서\n\n| A | B |\n|---|---|\n| 1 | 2 | 3 |\n"
+                broken_md.write_text(broken_md_content, encoding="utf-8")
+
+                self._write_compact_and_full_transcripts(
+                    logs_dir,
+                    step_index=4,
+                    tool_name="write_to_file",
+                    args_dict={"TargetFile": str(broken_md), "CodeContent": broken_md_content},
+                )
+
+                # Stale/missing transcriptPath -> must fall back to artifactDirectoryPath/.system_generated/logs/
+                payload = json.dumps({
+                    "conversationId": "conv-123",
+                    "transcriptPath": str(tmp_path / "nonexistent" / "transcript.jsonl"),
+                    "artifactDirectoryPath": str(brain_dir),
+                    "stepIdx": 5,
+                })
+                proc_fail = subprocess.run(
+                    [NODE, str(script_path)],
+                    input=payload,
+                    text=True,
+                    encoding="utf-8",
+                    capture_output=True,
+                    cwd=str(tmp_path),
+                )
+                self.assertEqual(proc_fail.returncode, 1, f"{script_path}: {proc_fail.stderr}")
+                self.assertIn("table_column_mismatch", proc_fail.stderr)
+
+                # Fix markdown -> must pass with exit 0 and {}
+                clean_md_content = "# 보고서\n\n| A | B |\n|---|---|\n| 1 | 2 |\n"
+                broken_md.write_text(clean_md_content, encoding="utf-8")
+                proc_pass = subprocess.run(
+                    [NODE, str(script_path)],
+                    input=payload,
+                    text=True,
+                    encoding="utf-8",
+                    capture_output=True,
+                    cwd=str(tmp_path),
+                )
+                self.assertEqual(proc_pass.returncode, 0, f"{script_path}: {proc_pass.stderr}")
+                self.assertEqual(proc_pass.stdout.strip(), "{}")
+
+    def test_post_tool_use_json_schema_guard_via_transcript_and_truncated_fallback(self):
+        lazyargon_json_guard = ROOT.parent / "lazyargon" / "scripts" / "json_schema_guard.mjs"
+        script_paths = [ROOT / "scripts" / "json_schema_guard.mjs"]
+        if lazyargon_json_guard.exists():
+            script_paths.append(lazyargon_json_guard)
+
+        for script_path in script_paths:
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                brain_dir = tmp_path / "brain" / "conv-json"
+                logs_dir = brain_dir / ".system_generated" / "logs"
+
+                bad_json = tmp_path / "config.json"
+                bad_json.write_text('{"version": "not-a-semver", "url": "invalid-protocol://x"}', encoding="utf-8")
+
+                # Simulate truncated tool_calls in compact transcript.jsonl -> must read transcript_full.jsonl
+                self._write_compact_and_full_transcripts(
+                    logs_dir,
+                    step_index=4,
+                    tool_name="replace_file_content",
+                    args_dict={"TargetFile": str(bad_json), "ReplacementContent": '{"version": "not-a-semver"}'},
+                    truncate_compact=True,
+                )
+
+                payload = json.dumps({
+                    "conversationId": "conv-json",
+                    "transcriptPath": str(logs_dir / "transcript.jsonl"),
+                    "artifactDirectoryPath": str(brain_dir),
+                    "stepIdx": 5,
+                })
+                proc_fail = subprocess.run(
+                    [NODE, str(script_path)],
+                    input=payload,
+                    text=True,
+                    encoding="utf-8",
+                    capture_output=True,
+                    cwd=str(tmp_path),
+                )
+                self.assertEqual(proc_fail.returncode, 1, f"{script_path}: {proc_fail.stderr}")
+                self.assertIn("JSON SCHEMA GUARD", proc_fail.stderr)
+
+                # Valid JSON -> exit 0 + {}
+                bad_json.write_text('{"version": "1.2.3", "url": "https://example.com"}', encoding="utf-8")
+                proc_pass = subprocess.run(
+                    [NODE, str(script_path)],
+                    input=payload,
+                    text=True,
+                    encoding="utf-8",
+                    capture_output=True,
+                    cwd=str(tmp_path),
+                )
+                self.assertEqual(proc_pass.returncode, 0, f"{script_path}: {proc_pass.stderr}")
+                self.assertEqual(proc_pass.stdout.strip(), "{}")
+
+    def test_post_tool_use_hallucination_and_legal_and_evidence_guards_via_transcript(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            brain_dir = tmp_path / "brain" / "conv-forensic"
+            logs_dir = brain_dir / ".system_generated" / "logs"
+
+            # 1) hallucination_guard via run_command in transcript
+            bad_report = tmp_path / "포렌식_보고서.md"
+            bad_report.write_text("# 감정서\n\n이 증거는 유출 확정이며 법원에 유효하다.\n", encoding="utf-8")
+            self._write_compact_and_full_transcripts(
+                logs_dir,
+                step_index=4,
+                tool_name="run_command",
+                args_dict={"CommandLine": f"cat << 'EOF' > {bad_report}\n# 감정서\nEOF"},
+            )
+            payload = json.dumps({
+                "conversationId": "conv-forensic",
+                "transcriptPath": str(tmp_path / "missing" / "transcript.jsonl"),
+                "artifactDirectoryPath": str(brain_dir),
+                "stepIdx": 5,
+            })
+            proc_hall_fail = run_guard("hallucination_guard.mjs", [], stdin_payload=payload, cwd=tmp)
+            self.assertEqual(proc_hall_fail.returncode, 1, proc_hall_fail.stderr)
+            self.assertIn("HALLUCINATION GUARD", proc_hall_fail.stderr)
+
+            # Also verify evidence_guard post-tool-use records SHA-256 from the same transcript payload
+            proc_ev_post = run_guard("evidence_guard.mjs", ["post-tool-use"], stdin_payload=payload, cwd=tmp)
+            self.assertEqual(proc_ev_post.returncode, 0, proc_ev_post.stderr)
+            self.assertEqual(proc_ev_post.stdout.strip(), "{}")
+            audit_log = tmp_path / ".lazyforensic" / "audit_trail.jsonl"
+            self.assertTrue(audit_log.is_file())
+            audit_entry = json.loads(audit_log.read_text(encoding="utf-8").strip().splitlines()[-1])
+            self.assertEqual(Path(audit_entry["file"]).resolve(), bad_report.resolve())
+            self.assertEqual(len(audit_entry["sha256"]), 64)
+
+            # Fix report content -> hallucination_guard passes with exit 0 and {}
+            bad_report.write_text(f"# 감정서\n\nSHA-256: {audit_entry['sha256']}\n판정: 미확인\n", encoding="utf-8")
+            proc_hall_pass = run_guard("hallucination_guard.mjs", [], stdin_payload=payload, cwd=tmp)
+            self.assertEqual(proc_hall_pass.returncode, 0, proc_hall_pass.stderr)
+            self.assertEqual(proc_hall_pass.stdout.strip(), "{}")
+
+            # 2) legal_factuality_guard via multi_replace_file_content in transcript
+            legal_doc = tmp_path / "민사_소장_초안.md"
+            legal_doc.write_text("# 소장\n\n청구원인: 피고는 민법 제1500조에 기하여 손해를 배상할 의무가 있습니다.\n", encoding="utf-8")
+            self._write_compact_and_full_transcripts(
+                logs_dir,
+                step_index=6,
+                tool_name="multi_replace_file_content",
+                args_dict={
+                    "TargetFile": str(legal_doc),
+                    "ReplacementChunks": [{"TargetContent": "구문", "ReplacementContent": "민법 제1500조"}],
+                },
+            )
+            payload_legal = json.dumps({
+                "conversationId": "conv-forensic",
+                "transcriptPath": str(logs_dir / "transcript.jsonl"),
+                "artifactDirectoryPath": str(brain_dir),
+                "stepIdx": 7,
+            })
+            proc_legal_fail = run_guard("legal_factuality_guard.mjs", [], stdin_payload=payload_legal, cwd=tmp)
+            self.assertEqual(proc_legal_fail.returncode, 1, proc_legal_fail.stderr)
+            self.assertIn("LEGAL FACTUALITY GUARD", proc_legal_fail.stderr)
+
+            # Fix legal doc -> passes with exit 0 and {}
+            legal_doc.write_text("# 소장\n\n청구원인: 피고는 민법 제750조에 기하여 손해를 배상할 의무가 있습니다.\n", encoding="utf-8")
+            proc_legal_pass = run_guard("legal_factuality_guard.mjs", [], stdin_payload=payload_legal, cwd=tmp)
+            self.assertEqual(proc_legal_pass.returncode, 0, proc_legal_pass.stderr)
+            self.assertEqual(proc_legal_pass.stdout.strip(), "{}")
+
+    def test_stop_claim_guard_reads_antigravity_transcript_when_message_omitted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            brain_dir = tmp_path / "brain" / "conv-stop"
+            logs_dir = brain_dir / ".system_generated" / "logs"
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            step = {
+                "step_index": 3,
+                "source": "MODEL",
+                "type": "PLANNER_RESPONSE",
+                "status": "DONE",
+                "content": "모든 작업을 100% 완벽하게 완료했습니다.",
+            }
+            (logs_dir / "transcript_full.jsonl").write_text(json.dumps(step, ensure_ascii=False) + "\n", encoding="utf-8")
+            payload = json.dumps({
+                "conversationId": "conv-stop",
+                "transcriptPath": str(tmp_path / "stale" / "transcript.jsonl"),
+                "artifactDirectoryPath": str(brain_dir),
+                "executionNum": 1,
+                "terminationReason": "model_stop",
+                "fullyIdle": True,
+            })
+            proc = run_guard("stop_claim_guard.mjs", [], stdin_payload=payload, cwd=tmp)
+            self.assertEqual(proc.returncode, 0)
+            out = json.loads(proc.stdout)
+            self.assertEqual(out.get("decision"), "block")
+
+
 if __name__ == "__main__":
     unittest.main()
-
-
-

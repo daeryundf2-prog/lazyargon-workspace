@@ -1,7 +1,7 @@
 #!/bin/sh
 # lazyothers — 어느 디렉터리에서든 스크립트를 부르는 CLI 래퍼 (POSIX sh)
 # 설치: PATH에 이 bin/ 디렉터리를 추가하거나 /usr/local/bin에 심볼릭 링크
-#   export PATH="$HOME/devin/lazyothers/bin:$PATH"
+#   export PATH="$HOME/.gemini/config/plugins/lazyargon-workspace/bin:$PATH"
 set -eu
 
 SCRIPT="$0"

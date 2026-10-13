@@ -1,6 +1,6 @@
 # Humanize KR Scholarship Reference (v2.0)
 
-> **외부 SSOT** — 본진 분류 체계(`references/ai-tell-taxonomy.md`)는 패턴 행마다 한 줄 메타(`source_short`)로 이 파일을 가리킨다. 학술 출처 전문(full text)은 본 파일에 보존하여 SSOT 룰북의 슬림성을 해치지 않는다.
+> **외부 SSOT** — 본진 분류 체계(`ai-tell-taxonomy.md`)는 패턴 행마다 한 줄 메타(`source_short`)로 이 파일을 가리킨다. 학술 출처 전문(full text)은 본 파일에 보존하여 SSOT 룰북의 슬림성을 해치지 않는다.
 >
 > **출처 보고서**: 한국어 번역투(translationese) 종합 연구보고서: 영한 번역과 AI 후편집의 통합적 관점 (2026-05-07 distilled, 540 lines markdown).
 > 학자 이름·연도·저널·페이지·DOI는 보고서 verbatim. 자체 추정·확장 없음.

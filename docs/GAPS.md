@@ -52,7 +52,7 @@ PostToolUse 감사 로그는 `<cwd>/.lazyforensic/audit_trail.jsonl` 단일 파�
 
 ## Manim
 
-`video-editor/manim-video/REFERENCE.md`는 참고 문서다. 교육 영상 렌더 파이프라인이 아니다.
+`skills/video-editor/manim-video/REFERENCE.md`는 참고 문서다. 교육 영상 렌더 파이프라인이 아니다.
 
 ## 로컬 STT / 미디어 매칭 / PII (v1.0.2 추가분의 한계)
 

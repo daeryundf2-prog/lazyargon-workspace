@@ -94,14 +94,212 @@ async function collectSources() {
 	return sources;
 }
 
+const WRITE_OR_CMD_TOOL_RE = /^(write_to_file|replace_file_content|multi_replace_file_content|run_command|WriteToFile|ReplaceFileContent|MultiReplaceFileContent|RunCommand|write_file|Write|Edit|MultiEdit|SearchReplace|StrReplace|Bash|bash|Shell|shell|execute_command)$/i;
+const TARGET_KEY_RE = /^(file_path|filepath|path|target|target_file|targetfile|target_path|targetpath|output|file|filename)$/i;
+// \S 기반이므로 한글/공백 포함 경로도 매칭된다 (구버전 [\w\-\.] 은 ASCII 한정이었다)
+const PATH_LIKE_RE = /([^\s"'`<>|;&]+[\/\\][^\s"'`<>|;&]+\.(?:md|html|txt|json|csv|png|mp4))/i;
+const REDIRECT_RE = /(?:>|>>)\s*([^\s|&;]+(?:\.(?:md|html|txt|json|csv|png|mp4)))/i;
+
+function unquoteTranscriptVal(val) {
+	if (typeof val !== 'string') return val;
+	const t = val.trim();
+	if (t.length >= 2 && t.startsWith('"') && t.endsWith('"')) {
+		try {
+			const parsed = JSON.parse(t);
+			if (typeof parsed === 'string') return parsed;
+		} catch {
+			return t.slice(1, -1);
+		}
+	}
+	return val;
+}
+
+function resolveTranscriptPaths(payloadOrPath) {
+	if (typeof payloadOrPath === 'string') {
+		return resolveTranscriptPaths({ transcriptPath: payloadOrPath });
+	}
+	if (!payloadOrPath || typeof payloadOrPath !== 'object') return [];
+	const candidates = [];
+	const add = (p) => {
+		if (typeof p === 'string' && p.trim() && !candidates.includes(p.trim())) {
+			candidates.push(p.trim());
+		}
+	};
+	const tp = payloadOrPath.transcriptPath || payloadOrPath.transcript_path || '';
+	if (typeof tp === 'string' && tp.trim()) {
+		add(tp);
+		if (/transcript\.jsonl$/i.test(tp) && !/transcript_full\.jsonl$/i.test(tp)) {
+			add(tp.replace(/transcript\.jsonl$/i, 'transcript_full.jsonl'));
+		} else if (/transcript_full\.jsonl$/i.test(tp)) {
+			add(tp.replace(/transcript_full\.jsonl$/i, 'transcript.jsonl'));
+		}
+	}
+	const adp = payloadOrPath.artifactDirectoryPath || payloadOrPath.artifact_directory_path || '';
+	if (typeof adp === 'string' && adp.trim()) {
+		add(path.join(adp, '.system_generated', 'logs', 'transcript_full.jsonl'));
+		add(path.join(adp, '.system_generated', 'logs', 'transcript.jsonl'));
+		add(path.join(adp, 'transcript_full.jsonl'));
+		add(path.join(adp, 'transcript.jsonl'));
+	}
+	return candidates.filter((p) => {
+		try {
+			return fs.existsSync(p) && fs.statSync(p).isFile();
+		} catch {
+			return false;
+		}
+	});
+}
+
+function extractToolDataFromCall(tc) {
+	if (!tc || typeof tc !== 'object') return null;
+	const toolName = unquoteTranscriptVal(tc.name || tc.tool_name || tc.toolName || tc.function?.name || '');
+	if (toolName && !WRITE_OR_CMD_TOOL_RE.test(toolName)) return null;
+	let rawArgs = tc.args ?? tc.arguments ?? tc.input ?? tc.parameters ?? tc.function?.arguments ?? tc;
+	if (typeof rawArgs === 'string') {
+		rawArgs = tryParseJson(unquoteTranscriptVal(rawArgs)) ?? tryParseJson(rawArgs);
+	}
+	if (!rawArgs || typeof rawArgs !== 'object') return null;
+
+	const getStr = (...keys) => {
+		for (const k of keys) {
+			if (typeof rawArgs[k] === 'string' && rawArgs[k]) {
+				return unquoteTranscriptVal(rawArgs[k]);
+			}
+		}
+		return '';
+	};
+
+	let targetFile = getStr('TargetFile', 'target_file', 'file_path', 'filepath', 'path', 'target', 'target_path', 'targetpath', 'output', 'file', 'filename');
+	const commandLine = getStr('CommandLine', 'command_line', 'command', 'cmd', 'script');
+	let codeContent = getStr('CodeContent', 'code_content', 'ReplacementContent', 'replacement_content', 'content', 'new_string', 'text');
+	if (!codeContent && rawArgs.ReplacementChunks !== undefined) {
+		let chunks = rawArgs.ReplacementChunks;
+		if (typeof chunks === 'string') {
+			chunks = tryParseJson(unquoteTranscriptVal(chunks)) ?? tryParseJson(chunks);
+		}
+		if (Array.isArray(chunks)) {
+			codeContent = chunks
+				.map((c) => (c && typeof c === 'object' ? unquoteTranscriptVal(c.ReplacementContent || c.replacement_content || c.content || '') : ''))
+				.filter(Boolean)
+				.join('\n');
+		}
+	}
+	if (!targetFile && commandLine) {
+		const red = commandLine.match(REDIRECT_RE);
+		if (red) targetFile = red[1];
+		else {
+			const m = commandLine.match(PATH_LIKE_RE);
+			if (m) targetFile = m[1];
+		}
+	}
+	if (!targetFile && !commandLine && !codeContent) return null;
+	return { toolName, targetFile, codeContent, commandLine };
+}
+
+function extractFromTranscript(payloadOrPath) {
+	const paths = resolveTranscriptPaths(payloadOrPath);
+	const targetStepIdx =
+		payloadOrPath && typeof payloadOrPath === 'object'
+			? typeof payloadOrPath.stepIdx === 'number'
+				? payloadOrPath.stepIdx
+				: typeof payloadOrPath.step_index === 'number'
+					? payloadOrPath.step_index
+					: undefined
+			: undefined;
+
+	for (const tp of paths) {
+		try {
+			const content = fs.readFileSync(tp, 'utf8');
+			const lines = content.split(/\r?\n/).filter((l) => l.trim().length > 0).slice(-50).reverse();
+			const parsedSteps = [];
+			let hasTruncatedToolCalls = false;
+			for (const line of lines) {
+				const step = tryParseJson(line);
+				if (!step || typeof step !== 'object') continue;
+				if (Array.isArray(step.truncated_fields) && step.truncated_fields.includes('tool_calls')) {
+					hasTruncatedToolCalls = true;
+				}
+				parsedSteps.push({ step, line });
+			}
+			if (hasTruncatedToolCalls && paths.some((p) => p !== tp && /transcript_full\.jsonl$/i.test(p))) {
+				continue;
+			}
+
+			const searchSteps = (respectStepIdx) => {
+				for (const { step, line } of parsedSteps) {
+					const stepIdxVal = typeof step.step_index === 'number' ? step.step_index : typeof step.stepIdx === 'number' ? step.stepIdx : undefined;
+					if (respectStepIdx && targetStepIdx !== undefined && stepIdxVal !== undefined && stepIdxVal > targetStepIdx) {
+						continue;
+					}
+					const calls = Array.isArray(step.tool_calls)
+						? step.tool_calls
+						: Array.isArray(step.toolCalls)
+							? step.toolCalls
+							: step.toolCall && typeof step.toolCall === 'object'
+								? [step.toolCall]
+								: [];
+					if (respectStepIdx && targetStepIdx !== undefined && stepIdxVal !== undefined && targetStepIdx > stepIdxVal) {
+						const callOffset = targetStepIdx - stepIdxVal - 1;
+						if (callOffset >= 0 && callOffset < calls.length) {
+							const data = extractToolDataFromCall(calls[callOffset]);
+							if (data && (data.targetFile || data.commandLine)) return data;
+						}
+					}
+					for (let i = calls.length - 1; i >= 0; i -= 1) {
+						const data = extractToolDataFromCall(calls[i]);
+						if (data && (data.targetFile || data.commandLine)) return data;
+					}
+					const directData = extractToolDataFromCall(step);
+					if (directData && (directData.targetFile || directData.commandLine)) return directData;
+					if (WRITE_OR_CMD_TOOL_RE.test(line)) {
+						const found = [];
+						extractTargetFromNode(step, found);
+						for (const { value, isCommand } of found) {
+							const u = unquoteTranscriptVal(value);
+							if (!isCommand && u) return { toolName: '', targetFile: u, codeContent: '', commandLine: '' };
+							if (isCommand && u) {
+								const red = u.match(REDIRECT_RE);
+								if (red) return { toolName: 'run_command', targetFile: red[1], codeContent: '', commandLine: u };
+								const m = u.match(PATH_LIKE_RE);
+								if (m) return { toolName: 'run_command', targetFile: m[1], codeContent: '', commandLine: u };
+								return { toolName: 'run_command', targetFile: '', codeContent: '', commandLine: u };
+							}
+						}
+					}
+				}
+				return null;
+			};
+
+			const hit = searchSteps(true) || (targetStepIdx !== undefined ? searchSteps(false) : null);
+			if (hit) return hit;
+		} catch {
+			// continue to next candidate
+		}
+	}
+	return null;
+}
+
 // 패턴 검사 대상 문자열: 경로/명령 성격의 값들 + JSON이 아닌 원문 (env 단순 경로 등)
 function scanStrings(sources) {
 	const out = [];
 	for (const s of sources) {
 		if (s.parsed !== undefined) {
-			if (s.parsed?.toolCall?.args?.CommandLine) out.push(String(s.parsed.toolCall.args.CommandLine));
-			if (s.parsed?.toolCall?.args?.TargetFile) out.push(String(s.parsed.toolCall.args.TargetFile));
+			const beforeLen = out.length;
+			if (s.parsed?.toolCall?.args?.CommandLine) out.push(unquoteTranscriptVal(String(s.parsed.toolCall.args.CommandLine)));
+			if (s.parsed?.toolCall?.args?.TargetFile) out.push(unquoteTranscriptVal(String(s.parsed.toolCall.args.TargetFile)));
 			deepCollectPathish(s.parsed, out);
+			if (
+				out.length === beforeLen &&
+				s.parsed &&
+				typeof s.parsed === 'object' &&
+				(s.parsed.transcriptPath || s.parsed.transcript_path || s.parsed.artifactDirectoryPath || s.parsed.artifact_directory_path)
+			) {
+				const fromTranscript = extractFromTranscript(s.parsed);
+				if (fromTranscript) {
+					if (fromTranscript.commandLine) out.push(fromTranscript.commandLine);
+					if (fromTranscript.targetFile) out.push(fromTranscript.targetFile);
+				}
+			}
 			// JSON 파싱에 성공하면 원문은 재검사하지 않는다 (content 과차단 방지)
 		} else {
 			out.push(s.text);
@@ -189,13 +387,8 @@ function findViolation(texts) {
 }
 
 // ---------------------------------------------------------------------------
-// PostToolUse: 대상 파일 추정 (환경변수 > JSON 경로 키 > 유니코드 경로 정규식 > argv)
+// PostToolUse: 대상 파일 추정 (환경변수 > JSON 경로 키 > 트랜스크립트 > 유니코드 경로 정규식 > argv)
 // ---------------------------------------------------------------------------
-
-const TARGET_KEY_RE = /^(file_path|filepath|path|target|target_file|targetfile|target_path|targetpath|output)$/i;
-// \S 기반이므로 한글/공백 포함 경로도 매칭된다 (구버전 [\w\-\.] 은 ASCII 한정이었다)
-const PATH_LIKE_RE = /([^\s"'`<>|;&]+[\/\\][^\s"'`<>|;&]+\.(?:md|html|txt|json|csv|png|mp4))/i;
-const REDIRECT_RE = /(?:>|>>)\s*([^\s|&;]+(?:\.(?:md|html|txt|json)))/i;
 
 function extractTargetFromNode(node, out) {
 	if (Array.isArray(node)) {
@@ -204,17 +397,39 @@ function extractTargetFromNode(node, out) {
 	}
 	if (!node || typeof node !== 'object') return;
 	for (const [key, value] of Object.entries(node)) {
-		if (typeof value === 'string' && TARGET_KEY_RE.test(key) && value) out.push(value);
-		else if (value && typeof value === 'object') extractTargetFromNode(value, out);
+		if (typeof value === 'string' && value) {
+			if (TARGET_KEY_RE.test(key)) out.push({ value, isCommand: false });
+			else if (/^(command|cmd|command_line|commandline|script|args)$/i.test(key)) out.push({ value, isCommand: true });
+		} else if (value && typeof value === 'object') {
+			extractTargetFromNode(value, out);
+		}
 	}
 }
 
 function extractTarget(sources) {
+	const env = process.env.ANTIGRAVITY_TARGET_FILE || process.env.TARGET_FILE || '';
+	if (env) return env;
 	for (const s of sources) {
 		if (s.parsed !== undefined) {
+			if (s.parsed?.toolCall?.args?.TargetFile) return unquoteTranscriptVal(String(s.parsed.toolCall.args.TargetFile));
 			const found = [];
 			extractTargetFromNode(s.parsed, found);
-			if (found.length > 0) return found[0];
+			for (const { value, isCommand } of found) {
+				const u = unquoteTranscriptVal(value);
+				if (!isCommand) return u;
+				const red = u.match(REDIRECT_RE);
+				if (red) return red[1];
+				const m = u.match(PATH_LIKE_RE);
+				if (m) return m[1];
+			}
+			if (
+				s.parsed &&
+				typeof s.parsed === 'object' &&
+				(s.parsed.transcriptPath || s.parsed.transcript_path || s.parsed.artifactDirectoryPath || s.parsed.artifact_directory_path)
+			) {
+				const fromTranscript = extractFromTranscript(s.parsed);
+				if (fromTranscript && fromTranscript.targetFile) return fromTranscript.targetFile;
+			}
 		}
 	}
 	// JSON 이 아닌 원문: 리다이렉트(bash) 우선, 그 다음 일반 경로

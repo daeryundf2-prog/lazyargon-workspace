@@ -1,8 +1,8 @@
 #!/bin/sh
 # lazyforensic — 어느 디렉터리에서든 스크립트를 부르는 CLI 래퍼 (POSIX sh)
 # 설치: PATH에 이 bin/ 디렉터리를 추가하거나 /usr/local/bin에 심볼릭 링크
-#   export PATH="$HOME/devin/lazyforensic/bin:$PATH"
-#   ln -s "$HOME/devin/lazyforensic/bin/lazyforensic" /usr/local/bin/lazyforensic
+#   export PATH="$HOME/.gemini/config/plugins/lazyargon-workspace/bin:$PATH"
+#   ln -s "$HOME/.gemini/config/plugins/lazyargon-workspace/bin/lazyforensic" /usr/local/bin/lazyforensic
 set -eu
 
 SELF="$0"
@@ -40,6 +40,7 @@ usage() {
 lazyforensic — 증거 선조사 CLI 래퍼 (로컬 전용)
 
   lazyforensic scan <폴더> [--keywords ...] [--stt] [-o out.json] [--markdown out.md]
+  lazyforensic triage <폴더> [--keywords ...] [--stt] [-o out.json] [--markdown out.md]
   lazyforensic stt <오디오|폴더> [--keywords ...] [--verbatim]
   lazyforensic pii <파일|폴더> [--mask]
   lazyforensic manifest <폴더> [-o m.json] [--verify m.json]
@@ -56,6 +57,15 @@ lazyforensic — 증거 선조사 CLI 래퍼 (로컬 전용)
   lazyforensic afp <폴더>             오디오 지문 유사 쌍 (fpcalc)
   lazyforensic osint <닉네임>         sherlock OSINT (외부 쿼리 — 동의 필요)
   lazyforensic timeline --manifest m.json ...   다중 소스 시각 병합
+  lazyforensic kakao <파일.txt>       카카오톡 텍스트 내보내기 파싱
+  lazyforensic telegram <result.json> 텔레그램 JSON 내보내기 파싱
+  lazyforensic evtx [도구...]         EVTX 헌팅 BYO 도구 게이트 점검
+  lazyforensic mft <이미지>           NTFS/Prefetch/Shimcache 아티팩트 파싱 (Dissect)
+  lazyforensic memory [도구...]       메모리 트리아지 BYO 도구 게이트 점검
+  lazyforensic video <영상>           CCTV/동영상 프레임·컨테이너 메타데이터 감사
+  lazyforensic deepfake <미디어>      딥페이크/합성 미디어 1차 감사 (해시·C2PA·FFT)
+  lazyforensic timestamps <파일|폴더> 파일 생성/수정/접근 시각 및 해시 감사
+  lazyforensic verify <보고서.md>     보고서 초안 할루시네이션·그라운딩 검증
   lazyforensic sheet <manifest.json> [--party 갑] 서증 목록표 초안
   lazyforensic export <manifest.json> -o e.json   lazyothers evidence.json 변환
   lazyforensic dlp <로그.csv>          DLP 로그 → 체크리스트 표 (탐지 아님, 정리)
@@ -68,7 +78,7 @@ EOF
 cmd="$1"; shift
 
 case "$cmd" in
-  scan)      exec "$PY" "$ROOT/scripts/case_survey.py" "$@" ;;
+  scan|triage) exec "$PY" "$ROOT/scripts/case_survey.py" "$@" ;;
   stt)       exec "$PY" "$ROOT/scripts/local_stt.py" "$@" ;;
   pii)       exec "$PY" "$ROOT/scripts/pii_mask.py" "$@" ;;
   manifest)  exec "$PY" "$ROOT/scripts/evidence_manifest.py" "$@" ;;
@@ -85,6 +95,15 @@ case "$cmd" in
   afp)       exec "$PY" "$ROOT/scripts/audio_fingerprint.py" "$@" ;;
   osint)     exec "$PY" "$ROOT/scripts/osint_username.py" "$@" ;;
   timeline)  exec "$PY" "$ROOT/scripts/merge_timeline.py" "$@" ;;
+  kakao)     exec "$PY" "$ROOT/skills/kakao-chat-extractor/scripts/parse_kakao.py" "$@" ;;
+  telegram)  exec "$PY" "$ROOT/skills/telegram-chat-extractor/scripts/parse_telegram.py" "$@" ;;
+  evtx)      if [ $# -eq 0 ]; then exec "$PY" "$ROOT/scripts/check_tool.py" hayabusa.exe chainsaw.exe; else exec "$PY" "$ROOT/scripts/check_tool.py" "$@"; fi ;;
+  mft)       exec "$PY" "$ROOT/scripts/parse_ntfs_artifacts.py" "$@" ;;
+  memory)    if [ $# -eq 0 ]; then exec "$PY" "$ROOT/scripts/check_tool.py" MemProcFS.exe vol.py; else exec "$PY" "$ROOT/scripts/check_tool.py" "$@"; fi ;;
+  video)     exec "$PY" "$ROOT/skills/forensic-video/scripts/forensic_video_audit.py" "$@" ;;
+  deepfake)  exec "$PY" "$ROOT/scripts/analyze_deepfake_evidence.py" "$@" ;;
+  timestamps) exec "$PY" "$ROOT/skills/forensic-audit/scripts/audit_timestamps.py" "$@" ;;
+  verify)    exec "$PY" "$ROOT/scripts/verify_report.py" "$@" ;;
   sheet)     exec "$PY" "$ROOT/scripts/court_evidence_sheet.py" "$@" ;;
   export)    exec "$PY" "$ROOT/scripts/evidence_export.py" "$@" ;;
   dlp)       exec "$PY" "$ROOT/scripts/dlp_log_table.py" "$@" ;;

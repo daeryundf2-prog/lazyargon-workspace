@@ -435,6 +435,9 @@ def run_checks(original: str, output: str) -> list[Failure]:
 
 
 def main(argv: list[str]) -> int:
+    if len(argv) == 2 and argv[1] in ("-h", "--help"):
+        print("usage: python3 checks.py <original.txt> <rewritten.txt>")
+        return 0
     if len(argv) != 3:
         print("usage: python3 checks.py <original.txt> <rewritten.txt>", file=sys.stderr)
         return 2

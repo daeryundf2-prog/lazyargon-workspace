@@ -72,6 +72,56 @@ function readStdin(limitMs) {
 	});
 }
 
+function resolveTranscriptPaths(payload) {
+	if (!payload || typeof payload !== 'object') return [];
+	const candidates = [];
+	const add = (p) => {
+		if (typeof p === 'string' && p.trim() && !candidates.includes(p.trim())) {
+			candidates.push(p.trim());
+		}
+	};
+	const tp = payload.transcriptPath || payload.transcript_path || '';
+	if (typeof tp === 'string' && tp.trim()) {
+		add(tp);
+		if (/transcript\.jsonl$/i.test(tp) && !/transcript_full\.jsonl$/i.test(tp)) {
+			add(tp.replace(/transcript\.jsonl$/i, 'transcript_full.jsonl'));
+		} else if (/transcript_full\.jsonl$/i.test(tp)) {
+			add(tp.replace(/transcript_full\.jsonl$/i, 'transcript.jsonl'));
+		}
+	}
+	const adp = payload.artifactDirectoryPath || payload.artifact_directory_path || '';
+	if (typeof adp === 'string' && adp.trim()) {
+		add(path.join(adp, '.system_generated', 'logs', 'transcript_full.jsonl'));
+		add(path.join(adp, '.system_generated', 'logs', 'transcript.jsonl'));
+		add(path.join(adp, 'transcript_full.jsonl'));
+		add(path.join(adp, 'transcript.jsonl'));
+	}
+	return candidates.filter((p) => {
+		try {
+			return fs.existsSync(p) && fs.statSync(p).isFile();
+		} catch {
+			return false;
+		}
+	});
+}
+
+function extractLastAssistantMessageFromTranscript(transcriptContent) {
+	if (!transcriptContent) return '';
+	const lines = transcriptContent.split(/\r?\n/).filter((l) => l.trim().length > 0).slice(-30).reverse();
+	for (const line of lines) {
+		try {
+			const step = JSON.parse(line);
+			if (!step || typeof step !== 'object') continue;
+			if ((step.type === 'PLANNER_RESPONSE' || step.source === 'MODEL') && typeof step.content === 'string' && step.content.trim()) {
+				return step.content;
+			}
+		} catch {
+			// ignore malformed line
+		}
+	}
+	return '';
+}
+
 async function main() {
 	let payload;
 	try {
@@ -89,7 +139,24 @@ async function main() {
 		process.stdout.write('{}\n');
 		process.exit(0);
 	}
-	const message = typeof payload.last_assistant_message === 'string' ? payload.last_assistant_message : '';
+
+	let transcriptContent = '';
+	const transcriptPaths = resolveTranscriptPaths(payload);
+	for (const tp of transcriptPaths) {
+		try {
+			transcriptContent = fs.readFileSync(tp, 'utf8');
+			if (transcriptContent) break;
+		} catch {
+			// continue
+		}
+	}
+
+	const message =
+		typeof payload.last_assistant_message === 'string' && payload.last_assistant_message
+			? payload.last_assistant_message
+			: typeof payload.finalModelOutput === 'string' && payload.finalModelOutput
+				? payload.finalModelOutput
+				: extractLastAssistantMessageFromTranscript(transcriptContent);
 	if (!message || !CLAIM_RE.test(message)) {
 		process.stdout.write('{}\n');
 		process.exit(0);
@@ -97,22 +164,17 @@ async function main() {
 	if (EVIDENCE_RE.test(message)) {
 		// Feature 15: Fact-Retracing Gate (v2)
 		// Verify high-risk claimed file paths against disk and transcript
-		let transcriptContent = '';
-		const transcriptPath = payload.transcript_path;
-		if (transcriptPath && typeof transcriptPath === 'string' && fs.existsSync(transcriptPath)) {
-			try {
-				transcriptContent = fs.readFileSync(transcriptPath, 'utf8');
-			} catch {
-				// Ignore transcript read failure
-			}
-		}
+		const baseCwd =
+			payload.cwd ||
+			(Array.isArray(payload.workspacePaths) && typeof payload.workspacePaths[0] === 'string' ? payload.workspacePaths[0] : '') ||
+			process.cwd();
 
 		const claimedFileMatches = message.matchAll(/(?:(?:생성|작성|수정|추가|산출물)(?:은|는|이|가|로|으로)?|(?:created|written|generated|file|path))\s*[:=]?\s*[`"']?([a-zA-Z0-9_.:/\\가-힣-]+\.(?:ts|js|mjs|py|go|rs|json|md))[`"']?/gi);
 		for (const match of claimedFileMatches) {
 			const claimedPath = match[1];
 			const fullPath = path.isAbsolute(claimedPath)
 				? path.normalize(claimedPath)
-				: path.resolve(payload.cwd || process.cwd(), claimedPath);
+				: path.resolve(baseCwd, claimedPath);
 			const existsOnDisk = fs.existsSync(fullPath);
 			const existsInTranscript = transcriptContent ? transcriptContent.includes(claimedPath) : false;
 
