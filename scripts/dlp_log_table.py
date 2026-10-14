@@ -1,21 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-dlp_log_table.py — 이미 확보한 DLP/로그 CSV를 체크리스트 표로 정리
+dlp_log_table.py — 이미 확보한 DLP/로그 CSV·XLSX를 체크리스트 표로 정리
 
 dlp-leakage-detector 스킬의 4축(검색·수집·반출·정리)에 맞춰
-사용자가 확보한 로그 CSV를 시간순 Markdown 표로 옮긴다.
+사용자가 확보한 로그 CSV/XLSX를 시간순 Markdown 표로 옮긴다.
 
 이 도구는 '정리'만 한다 — 유출을 탐지하거나 결론내지 않는다.
-CSV에 없는 행은 만들지 않으며, 행이 없으면 빈 표를 출력한다.
-
-사용:
-    python scripts/dlp_log_table.py dlp_events.csv
-    python scripts/dlp_log_table.py logs.csv --time-col timestamp \
-        --event-col action --src-col agent --phase-col phase
-
-CSV 요구사항: 헤더 행 필수. --phase-col이 주어지면 그 값으로
-4축 그룹핑하고, 없으면 단일 시간순 표로 출력한다.
+원본에 없는 행은 만들지 않으며, 행이 없으면 빈 표를 출력한다.
 """
 from __future__ import annotations
 
@@ -24,22 +16,61 @@ import csv
 import sys
 from pathlib import Path
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 PHASES = ["검색/준비", "수집/압축", "반출", "정리"]
 
 
 def load_rows(path: Path) -> tuple[list[str], list[dict]]:
-    with path.open(newline="", encoding="utf-8-sig") as f:
+    ext = path.suffix.lower()
+    if ext in (".xlsx", ".xlsm"):
+        import openpyxl
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        ws = wb.active
+        raw_rows = list(ws.iter_rows(values_only=True))
+        wb.close()
+        if not raw_rows:
+            return [], []
+        hdr_idx = 0
+        for idx, r in enumerate(raw_rows[:10]):
+            non_empty = [str(c).strip() for c in r if c is not None and str(c).strip()]
+            if len(non_empty) >= 2:
+                hdr_idx = idx
+                break
+        headers = [str(c).strip() if c is not None and str(c).strip() else f"col{i}" for i, c in enumerate(raw_rows[hdr_idx])]
+        rows = []
+        for r in raw_rows[hdr_idx + 1:]:
+            if not any(c is not None and str(c).strip() for c in r):
+                continue
+            rows.append({headers[i]: ("" if c is None else str(c).strip()) for i, c in enumerate(r) if i < len(headers)})
+        return headers, rows
+
+    for enc in ("utf-8-sig", "utf-8", "cp949", "euc-kr"):
+        try:
+            with path.open(newline="", encoding=enc) as f:
+                reader = csv.DictReader(f)
+                rows = [r for r in reader]
+                return list(reader.fieldnames or []), rows
+        except UnicodeDecodeError:
+            continue
+    with path.open(newline="", encoding="utf-8-sig", errors="replace") as f:
         reader = csv.DictReader(f)
         rows = [r for r in reader]
         return list(reader.fieldnames or []), rows
 
 
 def pick_col(headers: list[str], requested: str | None,
-             fallbacks: list[str]) -> str | None:
+             fallbacks: list[str], exclude: set[str | None] | None = None) -> str | None:
     if requested:
         return requested if requested in headers else None
+    excl = exclude or set()
     for c in fallbacks:
         for h in headers:
+            if h in excl:
+                continue
             if c in h.lower():
                 return h
     return None
@@ -50,7 +81,7 @@ def to_markdown(rows: list[dict], time_col: str | None, event_col: str | None,
     lines = [
         "# 유출 교차분석 로그 정리 (사용자 제공 로그의 재배열 — 탐지 아님)",
         "",
-        "> 본 표는 입력 CSV의 행을 시간순으로 옮긴 것이다. 없는 로그를",
+        "> 본 표는 입력 로그의 행을 시간순으로 옮긴 것이다. 없는 로그를",
         "> 보강하지 않으며, 유출 여부 판단은 분석가의 몫이다.",
         "",
     ]
@@ -71,7 +102,7 @@ def to_markdown(rows: list[dict], time_col: str | None, event_col: str | None,
                 f"{cell(r, src_col)} | {'; '.join(extras)} |")
         lines.append("")
 
-    rows_sorted = sorted(rows, key=lambda r: r.get(time_col, "")) if time_col else rows
+    rows_sorted = sorted(rows, key=lambda r: str(r.get(time_col, "") or "")) if time_col else rows
     if phase_col:
         used = set()
         for ph in PHASES:
@@ -89,8 +120,8 @@ def to_markdown(rows: list[dict], time_col: str | None, event_col: str | None,
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
-        description="확보된 로그 CSV → 시간순 체크리스트 표 (탐지 아님, 정리)")
-    ap.add_argument("input", help="CSV 경로")
+        description="확보된 로그 CSV/XLSX → 시간순 체크리스트 표 (탐지 아님, 정리)")
+    ap.add_argument("input", help="CSV 또는 XLSX 경로")
     ap.add_argument("--time-col", default=None)
     ap.add_argument("--event-col", default=None)
     ap.add_argument("--src-col", default=None)
@@ -111,16 +142,20 @@ def main(argv: list[str] | None = None) -> int:
     time_col = pick_col(headers, args.time_col,
                         ["time", "date", "시각", "일시", "timestamp"])
     event_col = pick_col(headers, args.event_col,
-                         ["event", "action", "행위", "내용", "operation"])
-    src_col = pick_col(headers, args.src_col, ["src", "source", "출처", "agent"])
-    phase_col = pick_col(headers, args.phase_col, ["phase", "단계"])
+                         ["event", "action", "행위", "내용", "operation", "정책", "policy", "탐지", "차단"],
+                         exclude={time_col})
+    src_col = pick_col(headers, args.src_col,
+                       ["src", "source", "출처", "agent", "채널", "channel", "매체", "경로", "path", "destination"],
+                       exclude={time_col, event_col})
+    phase_col = pick_col(headers, args.phase_col, ["phase", "단계"],
+                         exclude={time_col, event_col, src_col})
 
     for name, col, headers_l in [("--time-col", args.time_col, headers),
                                  ("--event-col", args.event_col, headers),
                                  ("--src-col", args.src_col, headers),
                                  ("--phase-col", args.phase_col, headers)]:
         if col and col not in headers_l:
-            print(f"{name} '{col}'이(가) CSV 헤더에 없습니다: {headers_l}",
+            print(f"{name} '{col}'이(가) 헤더에 없습니다: {headers_l}",
                   file=sys.stderr)
             return 2
 

@@ -21,6 +21,7 @@ Fail-closed 규약:
 
 import argparse
 import json
+import os
 import re
 import sys
 
@@ -233,6 +234,15 @@ def parse_kakao_text(text):
 
 
 def parse_kakao_file(filepath):
+    if os.path.isdir(filepath):
+        all_records = []
+        for entry in sorted(os.listdir(filepath)):
+            full = os.path.join(filepath, entry)
+            if os.path.isfile(full) and entry.lower().endswith(".txt"):
+                for rec in parse_kakao_text(read_kakao_text(full)):
+                    rec["source_file"] = entry
+                    all_records.append(rec)
+        return all_records
     return parse_kakao_text(read_kakao_text(filepath))
 
 

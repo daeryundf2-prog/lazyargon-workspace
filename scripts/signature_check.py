@@ -25,6 +25,10 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 from pathlib import Path
 
 # (시그니처, 오프셋, 형식명, 기대 확장자들)
@@ -62,6 +66,11 @@ def _is_json(header: bytes) -> bool:
     return s[:1] in (b"{", b"[")
 
 
+def _is_html(header: bytes) -> bool:
+    s = header.lstrip().lower()
+    return s.startswith((b"<!doctype html", b"<html"))
+
+
 def sniff(path: Path) -> tuple[str, set[str]]:
     """(감지된 형식명, 기대 확장자 집합) 또는 ('UNKNOWN', set())."""
     try:
@@ -80,6 +89,8 @@ def sniff(path: Path) -> tuple[str, set[str]]:
             continue
         if header[offset:offset + len(sig)] == sig:
             return name, exts
+    if _is_html(header):
+        return "HTML", {".html", ".htm"}
     if _is_json(header):
         return "JSON?", {".json"}
     return "UNKNOWN", set()

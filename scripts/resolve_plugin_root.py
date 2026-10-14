@@ -6,6 +6,10 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 from pathlib import Path
 
 REQUIRED_SCRIPT = Path("scripts") / "prepare_monolith_input.py"

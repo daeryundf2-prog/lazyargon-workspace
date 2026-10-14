@@ -40,10 +40,51 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+import contextlib
+
+_WHISPER_MODEL_CACHE: dict[str, object] = {}
+
+
+@contextlib.contextmanager
+def _win_symlink_fallback():
+    if os.name != "nt":
+        yield
+        return
+    orig_symlink = os.symlink
+
+    def _safe_win_symlink(src, dst, target_is_directory=False, *args, **kwargs):
+        try:
+            return orig_symlink(src, dst, target_is_directory=target_is_directory, *args, **kwargs)
+        except OSError as exc:
+            if getattr(exc, "winerror", None) == 1314:
+                src_p = Path(src)
+                dst_p = Path(dst)
+                if not src_p.is_absolute():
+                    src_p = (dst_p.parent / src_p).resolve()
+                if src_p.is_dir():
+                    shutil.copytree(src_p, dst_p, dirs_exist_ok=True)
+                else:
+                    dst_p.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src_p, dst_p)
+                return None
+            raise
+
+    os.symlink = _safe_win_symlink
+    try:
+        yield
+    finally:
+        os.symlink = orig_symlink
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -120,7 +161,10 @@ def parse_sensevoice_tags(raw_text: str) -> dict:
 def transcribe_faster_whisper(path: Path, lang: str | None, verbatim: bool, model_size: str) -> dict:
     from faster_whisper import WhisperModel  # type: ignore
 
-    model = WhisperModel(model_size)
+    if model_size not in _WHISPER_MODEL_CACHE:
+        with _win_symlink_fallback():
+            _WHISPER_MODEL_CACHE[model_size] = WhisperModel(model_size)
+    model = _WHISPER_MODEL_CACHE[model_size]
     segments_iter, _info = model.transcribe(
         str(path),
         language=lang,
@@ -295,7 +339,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="엔진 강제 지정 (faster-whisper|openai-whisper|sensevoice|moonshine). "
                          "감정 태그가 필요하면 sensevoice 지정")
     ap.add_argument("--keywords", default=None, help="쉼표 구분 키워드 히트 리포트")
-    ap.add_argument("--out", default=None, help="배치 요약 JSON 출력 경로")
+    ap.add_argument("--out", "--output", dest="out", default=None, help="배치 요약 JSON 출력 경로")
+    ap.add_argument("--out-dir", default=None, help="개별 .transcript.json 저장 디렉터리 (미지정 시 --out 폴더 또는 원본 옆)")
     args = ap.parse_args(argv)
 
     if args.engine:
@@ -352,7 +397,16 @@ def main(argv: list[str] | None = None) -> int:
         if keywords:
             record["keyword_hits"] = keyword_hits(result["segments"], keywords)
 
-        out_path = f.with_name(f.name + ".transcript.json")
+        if args.out_dir:
+            out_dir = Path(args.out_dir)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out_path = out_dir / (f.name + ".transcript.json")
+        elif args.out:
+            out_dir = Path(args.out).resolve().parent
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out_path = out_dir / (f.name + ".transcript.json")
+        else:
+            out_path = f.with_name(f.name + ".transcript.json")
         out_path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
         hit_msg = f", 키워드 히트 {len(record.get('keyword_hits', []))}건" if keywords else ""
         print(f"[OK] {f} — {record['segment_count']}개 세그먼트{hit_msg} → {out_path.name}")

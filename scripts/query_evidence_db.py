@@ -28,6 +28,10 @@ import os
 import re
 import sqlite3
 import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 # 원본 훼손 방지 — 이 네 가지로 시작하는 문만 허용한다.
 _ALLOWED_PREFIXES = ("select", "pragma", "explain", "with")

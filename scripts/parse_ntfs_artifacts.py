@@ -20,6 +20,59 @@ if hasattr(sys.stdout, "reconfigure"):
 
 MAX_RECORDS_DEFAULT = 10000
 
+def _wevtutil_eventlogs(target_path: str, limit: int = MAX_RECORDS_DEFAULT):
+    import shutil
+    import subprocess
+    import xml.etree.ElementTree as ET
+    if os.name != "nt" or not shutil.which("wevtutil.exe"):
+        return None
+    evtx_files = []
+    if os.path.isfile(target_path) and target_path.lower().endswith(".evtx"):
+        evtx_files.append(target_path)
+    elif os.path.isdir(target_path):
+        for root_d, _, fnames in os.walk(target_path):
+            for fn in sorted(fnames):
+                if fn.lower().endswith(".evtx"):
+                    evtx_files.append(os.path.join(root_d, fn))
+    if not evtx_files:
+        return None
+    records = []
+    for evtx in evtx_files:
+        rem = max(1, limit - len(records))
+        proc = subprocess.run(
+            ["wevtutil.exe", "qe", evtx, "/lf:true", "/f:xml", f"/c:{rem}"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60
+        )
+        if proc.returncode != 0 or not proc.stdout.strip():
+            continue
+        xml_wrapped = "<Events>" + proc.stdout + "</Events>"
+        try:
+            root = ET.fromstring(xml_wrapped)
+        except ET.ParseError:
+            continue
+        ns = {"e": "http://schemas.microsoft.com/win/2004/08/events/event"}
+        for ev in root.findall("e:Event", ns):
+            sys_el = ev.find("e:System", ns)
+            if sys_el is None:
+                continue
+            prov_el = sys_el.find("e:Provider", ns)
+            eid_el = sys_el.find("e:EventID", ns)
+            tc_el = sys_el.find("e:TimeCreated", ns)
+            comp_el = sys_el.find("e:Computer", ns)
+            chan_el = sys_el.find("e:Channel", ns)
+            records.append({
+                "timestamp": tc_el.attrib.get("SystemTime", "N/A") if tc_el is not None else "N/A",
+                "provider": prov_el.attrib.get("Name", "N/A") if prov_el is not None else "N/A",
+                "event_id": int(eid_el.text) if (eid_el is not None and eid_el.text and eid_el.text.isdigit()) else (eid_el.text if eid_el is not None else "N/A"),
+                "computer": comp_el.text if comp_el is not None else "N/A",
+                "channel": chan_el.text if chan_el is not None else "N/A",
+                "source_file": os.path.basename(evtx),
+            })
+            if len(records) >= limit:
+                return records
+    return records
+
+
 
 def run_dissect_query(target_path: str, artifact_type: str, limit: int = MAX_RECORDS_DEFAULT):
     """Fox-IT Dissect 프레임워크를 활용한 아티팩트 추출 (bring-your-own-binary 래퍼).
@@ -29,6 +82,10 @@ def run_dissect_query(target_path: str, artifact_type: str, limit: int = MAX_REC
     try:
         from dissect.target import Target
     except ImportError:
+        if artifact_type == "eventlogs":
+            fb = _wevtutil_eventlogs(target_path, limit=limit)
+            if fb is not None:
+                return fb, None
         return [], (
             "Dissect 프레임워크 미설치 — pip install dissect[full] 실행 후 재시도. "
             "이 상태에서는 레코드 0건조차 보고할 수 없다."

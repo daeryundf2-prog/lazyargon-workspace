@@ -33,6 +33,10 @@ import argparse
 import json
 import math
 import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 from pathlib import Path
 
 # 지표별 "좋은 방향". 비교 결과에 개선/악화를 붙이기 위한 것.

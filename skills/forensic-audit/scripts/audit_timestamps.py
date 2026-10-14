@@ -135,6 +135,19 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
 
+    if os.path.isdir(args.file):
+        files = []
+        for root_d, _, fnames in os.walk(args.file):
+            for fn in sorted(fnames):
+                files.append(os.path.join(root_d, fn))
+        results = [r for f in files if (r := audit_file(f)) is not None]
+        if args.json:
+            print(json.dumps({"directory": os.path.abspath(args.file), "file_count": len(results), "files": results}, ensure_ascii=False, indent=2))
+        else:
+            for r in results:
+                print_audit_report(r)
+        return 0
+
     res = audit_file(args.file)
     if res is None:
         print(f"[-] File not found: {args.file}", file=sys.stderr)

@@ -30,10 +30,15 @@ import re
 import sys
 from datetime import datetime
 
-DATE_KEYS = ["거래일시", "거래일", "거래일자", "일자", "거래시간", "date", "datetime"]
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+DATE_KEYS = ["거래일시", "거래일", "거래일자", "일자", "년/월/일", "년월일", "날짜", "거래시간", "date", "datetime"]
 TIME_ONLY_KEYS = ["거래시간", "시간", "time"]
-DEPOSIT_KEYS = ["입금액", "입금금액", "입금(원)", "맡기신금액", "맡기신 금액", "입금"]
-WITHDRAW_KEYS = ["출금액", "출금금액", "출금(원)", "찾으신금액", "찾으신 금액", "지급액", "출금"]
+DEPOSIT_KEYS = ["입금액", "입금금액", "입금(원)", "맡기신금액", "맡기신 금액", "입금", "수입액", "수입금액", "수입"]
+WITHDRAW_KEYS = ["출금액", "출금금액", "출금(원)", "찾으신금액", "찾으신 금액", "지급액", "출금", "지출액", "지출금액", "지출"]
 AMOUNT_KEYS = ["거래금액", "금액", "amount"]
 DIRECTION_KEYS = ["거래구분", "입출금구분", "구분", "유형", "type"]
 COUNTERPARTY_KEYS = ["상대방", "상대", "받는분", "받는사람", "보내는분", "보낸분", "의뢰인/수취인", "기재내용", "통장표기", "거래처", "적요", "거래내용", "내용", "비고", "counterparty", "description"]
@@ -51,16 +56,26 @@ _DATE_FORMATS = (
 )
 
 
+def _norm_hdr(s: str) -> str:
+    return re.sub(r"[\s/]+", "", str(s or "")).lower()
+
+
 def _pick(columns: list[str], keys: list[str]) -> str | None:
     lowered = {c.strip().lower(): c for c in columns}
+    normed = {_norm_hdr(c): c for c in columns}
     for key in keys:
         if key in lowered:
             return lowered[key]
-    for key in keys:  # 부분 일치 (예: "거래일시(등록일)"), 단 계좌/은행/지점/번호 열은 금액/구분에서 제외
+        nk = _norm_hdr(key)
+        if nk in normed:
+            return normed[nk]
+    for key in keys:
+        nk = _norm_hdr(key)
         for low, orig in lowered.items():
-            if any(bad in low for bad in ("계좌", "은행", "지점", "번호", "잔액")):
+            nlow = _norm_hdr(low)
+            if any(bad in nlow for bad in ("계좌", "은행", "지점", "번호", "잔액")):
                 continue
-            if key in low:
+            if key in low or (nk and nk in nlow):
                 return orig
     return None
 
@@ -87,6 +102,135 @@ def _parse_date(value) -> datetime | None:
     return None
 
 
+_SUMMARY_SKIP_RE = re.compile(r"(합계|소계|총계|통장잔액|잔액금액|전일잔액|금일잔액|이월|지출내역|필요금액)")
+
+
+def _extract_complex_xlsx_sheets(path: str, sheets_data: list[tuple[str, list[tuple]]]) -> tuple[list[str], list[dict]]:
+    try:
+        default_year = datetime.fromtimestamp(os.path.getmtime(path)).year
+    except OSError:
+        default_year = datetime.now().year
+    fname = os.path.basename(path)
+    m_fy = re.search(r"(?:20)?(\d{2})\s*[년.]", fname)
+    if m_fy:
+        default_year = 2000 + int(m_fy.group(1))
+    m_fm = re.search(r"(\d{1,2})\s*월", fname)
+    default_month = int(m_fm.group(1)) if m_fm and 1 <= int(m_fm.group(1)) <= 12 else 1
+
+    unified_cols = ["거래일자", "거래처", "입금액", "출금액", "적요"]
+    unified_rows: list[dict] = []
+
+    for sh_title, rows in sheets_data:
+        if not rows:
+            continue
+        banner_date = None
+        banner_year, banner_month = default_year, default_month
+        m_st = re.match(r"^(\d{1,2})-(\d{1,2})$", sh_title.strip())
+        if m_st:
+            banner_month, d_st = int(m_st.group(1)), int(m_st.group(2))
+            banner_date = f"{banner_year:04d}-{banner_month:02d}-{d_st:02d}"
+
+        hdr_idx = None
+        for idx, r in enumerate(rows[:15]):
+            norm_cells = [_norm_hdr(c) for c in r if c is not None]
+            joined = " ".join(norm_cells)
+            m_full = re.search(r"(20\d{2})년(\d{1,2})월(\d{1,2})일", joined)
+            if m_full:
+                banner_year, banner_month, bd = int(m_full.group(1)), int(m_full.group(2)), int(m_full.group(3))
+                banner_date = f"{banner_year:04d}-{banner_month:02d}-{bd:02d}"
+            else:
+                m_mo = re.search(r"(\d{1,2})(?:월|지출경비)", joined)
+                if m_mo and 1 <= int(m_mo.group(1)) <= 12:
+                    banner_month = int(m_mo.group(1))
+
+            has_cp = any(any(_norm_hdr(k) in nc for k in COUNTERPARTY_KEYS) for nc in norm_cells if nc)
+            has_amt = any(
+                any(_norm_hdr(k) in nc for k in (DEPOSIT_KEYS + WITHDRAW_KEYS + AMOUNT_KEYS))
+                for nc in norm_cells if nc and "잔액" not in nc and "계좌" not in nc
+            )
+            if has_cp and has_amt:
+                hdr_idx = idx
+                break
+
+        if hdr_idx is None:
+            continue
+
+        hdr_row = rows[hdr_idx]
+        norm_hdr_row = [_norm_hdr(c) for c in hdr_row]
+        cp_indices = [i for i, nc in enumerate(norm_hdr_row) if nc in ("거래처", "거래처명", "상대방", "상대")]
+        in_indices = [i for i, nc in enumerate(norm_hdr_row) if any(_norm_hdr(k) == nc for k in DEPOSIT_KEYS)]
+        out_indices = [i for i, nc in enumerate(norm_hdr_row) if any(_norm_hdr(k) == nc for k in WITHDRAW_KEYS)]
+
+        if len(cp_indices) >= 2 and in_indices and out_indices:
+            left_cp, right_cp = cp_indices[0], cp_indices[1]
+            left_in, right_out = in_indices[0], out_indices[0]
+            date_str = banner_date or f"{banner_year:04d}-{banner_month:02d}-01"
+            for r in rows[hdr_idx + 1:]:
+                if not r:
+                    continue
+                l_name = str(r[left_cp] or "").strip() if left_cp < len(r) and r[left_cp] is not None else ""
+                l_amt = _parse_amount(r[left_in]) if left_in < len(r) else None
+                if l_amt and l_name and not _SUMMARY_SKIP_RE.search(_norm_hdr(l_name)):
+                    unified_rows.append({"거래일자": date_str, "거래처": l_name, "입금액": l_amt, "출금액": "", "적요": sh_title})
+                r_name = str(r[right_cp] or "").strip() if right_cp < len(r) and r[right_cp] is not None else ""
+                r_amt = _parse_amount(r[right_out]) if right_out < len(r) else None
+                if r_amt and r_name and not _SUMMARY_SKIP_RE.search(_norm_hdr(r_name)):
+                    unified_rows.append({"거래일자": date_str, "거래처": r_name, "입금액": "", "출금액": r_amt, "적요": sh_title})
+            continue
+
+        cols = [str(c).strip() if c is not None and str(c).strip() else f"col{i}" for i, c in enumerate(hdr_row)]
+        d_col = _pick(cols, DATE_KEYS)
+        cp_col = _pick(cols, COUNTERPARTY_KEYS)
+        in_col = _pick(cols, DEPOSIT_KEYS)
+        out_col = _pick(cols, WITHDRAW_KEYS)
+        amt_col = _pick(cols, AMOUNT_KEYS)
+        last_date = banner_date or f"{banner_year:04d}-{banner_month:02d}-01"
+
+        for r in rows[hdr_idx + 1:]:
+            row_dict = {cols[i]: r[i] for i in range(min(len(cols), len(r)))}
+            raw_cp = str(row_dict.get(cp_col, "") or "").strip() if cp_col else ""
+            raw_d = str(row_dict.get(d_col, "") or "").strip() if d_col and row_dict.get(d_col) is not None else ""
+            if _SUMMARY_SKIP_RE.search(_norm_hdr(raw_cp)) or _SUMMARY_SKIP_RE.search(_norm_hdr(raw_d)):
+                continue
+            if raw_d:
+                if isinstance(row_dict.get(d_col), datetime):
+                    last_date = row_dict[d_col].strftime("%Y-%m-%d")
+                elif _parse_date(raw_d):
+                    last_date = _parse_date(raw_d).strftime("%Y-%m-%d")
+                else:
+                    m_day = re.match(r"^(\d{1,2})\s*일?$", raw_d)
+                    if m_day and 1 <= int(m_day.group(1)) <= 31:
+                        last_date = f"{banner_year:04d}-{banner_month:02d}-{int(m_day.group(1)):02d}"
+                    else:
+                        m_md = re.match(r"^(\d{1,2})[./\-](\d{1,2})$", raw_d)
+                        if m_md:
+                            last_date = f"{banner_year:04d}-{int(m_md.group(1)):02d}-{int(m_md.group(2)):02d}"
+            in_v = _parse_amount(row_dict.get(in_col)) if in_col else None
+            out_v = _parse_amount(row_dict.get(out_col)) if out_col else None
+            if not (in_v or out_v) and amt_col:
+                av = _parse_amount(row_dict.get(amt_col))
+                if av:
+                    if av > 0:
+                        in_v = av
+                    else:
+                        out_v = abs(av)
+            if not (in_v or out_v):
+                continue
+            unified_rows.append({
+                "거래일자": last_date,
+                "거래처": raw_cp or "(상대방 미기재)",
+                "입금액": in_v or "",
+                "출금액": out_v or "",
+                "적요": sh_title,
+            })
+
+    if unified_rows:
+        return unified_cols, unified_rows
+    first_rows = sheets_data[0][1]
+    columns = [str(c) if c is not None else f"col{i}" for i, c in enumerate(first_rows[0])]
+    return columns, [dict(zip(columns, r)) for r in first_rows[1:]]
+
+
 def read_rows(path: str) -> tuple[list[str], list[dict]]:
     """CSV 또는 XLSX에서 (열 목록, 행 dict 목록)을 읽는다."""
     ext = os.path.splitext(path)[1].lower()
@@ -109,14 +253,18 @@ def read_rows(path: str) -> tuple[list[str], list[dict]]:
             wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
         except Exception as exc:
             raise ValueError(f"XLSX를 읽지 못했습니다 (손상 파일로 보임): {exc}")
-        ws = wb.active
-        rows = list(ws.iter_rows(values_only=True))
+        sheets_data = [(sh.title, list(sh.iter_rows(values_only=True))) for sh in wb.worksheets]
         wb.close()
-        if not rows:
+        if not sheets_data or not any(r for _, r in sheets_data):
             return [], []
-        columns = [str(c) if c is not None else f"col{i}" for i, c in enumerate(rows[0])]
-        records = [dict(zip(columns, r)) for r in rows[1:]]
-        return columns, records
+        first_rows = sheets_data[0][1]
+        if first_rows:
+            cols0 = [str(c) if c is not None else f"col{i}" for i, c in enumerate(first_rows[0])]
+            if _pick(cols0, DATE_KEYS) and _pick(cols0, COUNTERPARTY_KEYS) and (
+                _pick(cols0, DEPOSIT_KEYS) or _pick(cols0, WITHDRAW_KEYS) or _pick(cols0, AMOUNT_KEYS)
+            ):
+                return cols0, [dict(zip(cols0, r)) for r in first_rows[1:]]
+        return _extract_complex_xlsx_sheets(path, sheets_data)
     raise ValueError(f"지원하지 않는 형식: {ext} (.csv / .xlsx)")
 
 

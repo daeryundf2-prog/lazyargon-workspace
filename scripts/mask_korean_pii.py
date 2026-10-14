@@ -42,6 +42,10 @@ import json
 import os
 import re
 import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 # ── 주민등록번호 / 외국인등록번호 ──────────────────────────────────
 # 6자리 생년월일 - 성별코드 + 일련. 유효 생월일만 후보로 잡아 오탐을 줄인다.

@@ -10,6 +10,10 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 from pathlib import Path
 
 # 모듈명 → (pip 패키지명, 이걸 깔면 되는 기능)

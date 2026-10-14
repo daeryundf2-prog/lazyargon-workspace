@@ -6,6 +6,10 @@ stamp_evidence.py - 대법원 전자소송(ECFS) 규격 서증(갑/을 제O호�
 
 import os
 import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 import re
 import argparse
 

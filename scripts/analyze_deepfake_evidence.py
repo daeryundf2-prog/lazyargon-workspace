@@ -289,7 +289,7 @@ def format_markdown_report(data: dict) -> str:
 ## 3. 2D 푸리에(FFT) 주파수 스펙트럼 인공 잔재 분석
 - **분석 상태**: {'성공' if f['analyzed'] else '미수행/실패'}
 - **스펙트럼 판정 지표**: `{fft_status}`
-- **체커보드 스파이크 감지**: {'비정상 고주파 격자 스파이크 검출 (생성기 잔재 의심)' if f['checkerboard_spikes_detected'] else '정상 (자연 사진 스펙트럼 곡선)'}
+- **체커보드 스파이크 감지**: {'미측정 (분석 미수행/실패)' if not f.get('analyzed') else ('비정상 고주파 격자 스파이크 검출 (생성기 잔재 의심)' if f['checkerboard_spikes_detected'] else '정상 (자연 사진 스펙트럼 곡선)')}
 - **고주파 에너지 비율**: {f.get('high_freq_ratio', 'N/A')} (표준편차: {f.get('high_freq_std', 'N/A')})
 - **분석 소견**:
 {notes_str}

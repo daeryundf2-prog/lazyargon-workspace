@@ -41,6 +41,7 @@ DEP_GROUPS = {
     "imaging": ("이미지 유사도·EXIF", ["pillow>=10.0,<12", "numpy>=1.26,<3"],
                 ["image_similarity.py", "exif_audit.py"]),
     "stt": ("로컬 STT", ["faster-whisper>=1.1,<2"], ["local_stt.py"]),
+    "ocr": ("로컬 OCR (한국어·영어)", ["easyocr>=1.7,<2", "pymupdf>=1.24,<2"], ["local_ocr.py", "parse_korean_doc.py"]),
     "osint": ("사용자명 OSINT", ["sherlock-project"], ["osint_username.py"]),
     "morph": ("한국어 형태소 그라운딩", ["kiwipiepy>=0.20,<1"], ["korean_morph_forensic.py"]),
 }
@@ -70,9 +71,15 @@ BINARY_FEATURES = {
 def check_environment() -> dict:
     """현재 python 환경에서 무엇이 가능한지 진단한다."""
     mods = {}
-    for name in ("PIL", "numpy", "faster_whisper", "whisper", "sherlock_project",
+    for name in ("PIL", "numpy", "faster_whisper", "whisper", "easyocr", "sherlock_project",
                  "kiwipiepy", "dissect"):
-        mods[name] = importlib.util.find_spec(name) is not None
+        if name == "dissect":
+            try:
+                mods[name] = importlib.util.find_spec("dissect.target") is not None
+            except ModuleNotFoundError:
+                mods[name] = False
+        else:
+            mods[name] = importlib.util.find_spec(name) is not None
     bins = {b: bool(shutil.which(b))
             for b in ("ffmpeg", "ffprobe", "fpcalc", "whisper-cli",
                       "transcribe-cli", "sherlock")}

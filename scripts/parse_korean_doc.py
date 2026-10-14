@@ -6,6 +6,10 @@ parse_korean_doc.py - HWP/HWPX/PDF 한국 공문서 텍스트 및 메타데이�
 
 import os
 import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 import json
 import argparse
 import zipfile
@@ -289,7 +293,29 @@ def parse_pdf(file_path: str) -> dict:
             chunks.append(t)
             result["sections"].append({"name": f"page_{i+1}", "text": t})
         result["text"] = "\n\n".join(chunks)
+        has_images = any(len(page.get_images()) > 0 for page in doc)
         doc.close()
+        if not result["text"].strip() and len(result["sections"]) > 0:
+            if has_images:
+                try:
+                    if os.path.dirname(os.path.abspath(__file__)) not in sys.path:
+                        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+                    import local_ocr
+                    eng = local_ocr.detect_engine("ko,en")
+                    if eng:
+                        ocr_res = local_ocr.ocr_file(Path(file_path), engine=eng, lang="ko,en")
+                        if ocr_res.get("text", "").strip():
+                            result["text"] = ocr_res["text"]
+                            result["sections"] = [
+                                {"name": f"page_{p['page']}", "text": p["text"]}
+                                for p in ocr_res.get("pages", [])
+                            ]
+                            result["metadata"]["ocr_engine"] = eng
+                            result["metadata"]["quality"] = "rough — 스캔 PDF OCR 추출 (원본 이미지 대조 권장)"
+                            return result
+                except Exception:
+                    pass
+            result["metadata"]["quality"] = "rough — 스캔/무텍스트 PDF (텍스트 레이어 없음)"
         return result
     except ImportError:
         errors.append("pymupdf not installed")

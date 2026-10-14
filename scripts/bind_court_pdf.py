@@ -23,6 +23,10 @@ import argparse
 import json
 import os
 import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 MAX_MB_DEFAULT = 50  # ECFS 개별 첨부파일 용량 한계 기준
 

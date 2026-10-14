@@ -3,6 +3,10 @@
 """check_statute_refresh.py — statute_bounds.json 버전·상한 출력 + 수동 대조 체크리스트 (외부망 호출 없음)."""
 import json
 import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 from pathlib import Path
 
 def main() -> int:
