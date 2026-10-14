@@ -314,13 +314,21 @@ export function validateJsonObject(obj, pathPrefix = '$') {
 
 		// URL Validation
 		if (/^(url|uri|homepage|repository|endpoint)$/i.test(key) && typeof val === 'string') {
-			if (val.trim().length > 0 && !/^(https?|git\+https?|file|wss?):\/\//i.test(val)) {
-				violations.push({
-					field: currentPath,
-					value: val,
-					rule: 'valid_url_protocol',
-					message: `URL '${val}' must have a valid protocol (http, https, file, ws)`
-				});
+			const trimmed = val.trim();
+			if (trimmed.length > 0) {
+				const hasProtocol = /^(https?|git\+https?|git\+ssh|ssh|git|file|wss?):\/\//i.test(trimmed);
+				const isRepoShorthand =
+					/^repository$/i.test(key) &&
+					(/^(?:github|gitlab|bitbucket|gist):\S+$/i.test(trimmed) || /^(?:git@[\w.-]+:)?[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+(?:\.git)?$/.test(trimmed));
+				const isRelativeEndpoint = /^endpoint$/i.test(key) && /^\/\S*$/.test(trimmed);
+				if (!hasProtocol && !isRepoShorthand && !isRelativeEndpoint) {
+					violations.push({
+						field: currentPath,
+						value: val,
+						rule: 'valid_url_protocol',
+						message: `URL '${val}' must have a valid protocol (http, https, file, ws), repository shorthand (github:...), or relative endpoint (/...)`
+					});
+				}
 			}
 		}
 
@@ -338,12 +346,15 @@ export function validateJsonObject(obj, pathPrefix = '$') {
 
 		// Version semantic format
 		if (/^version$/i.test(key) && typeof val === 'string') {
-			if (val.trim().length > 0 && !/^\d+\.\d+\.\d+(-[a-zA-Z0-9_.-]+)?$/.test(val.trim())) {
+			const trimmed = val.trim();
+			const validVersionRe =
+				/^(?:v?\d+(?:\.\d+){0,2}(?:-[a-zA-Z0-9_.-]+)?(?:\+[a-zA-Z0-9_.-]+)?|workspace:\S+|latest|next|beta|alpha|canary|rc|nightly|\*|[\^~>=<]+\s*v?\d+(?:\.\d+){0,2}(?:-[a-zA-Z0-9_.-]+)?)$/i;
+			if (trimmed.length > 0 && !validVersionRe.test(trimmed)) {
 				violations.push({
 					field: currentPath,
 					value: val,
 					rule: 'valid_semver',
-					message: `Version '${val}' does not match SemVer format (e.g. 1.0.0)`
+					message: `Version '${val}' does not match SemVer (e.g. 1.0.0, v1, workspace:*, latest) or YYYY.MM format (e.g. 2026.09)`
 				});
 			}
 		}

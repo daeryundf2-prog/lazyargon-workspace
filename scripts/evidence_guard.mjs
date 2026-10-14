@@ -61,7 +61,9 @@ function tryParseJson(text) {
 // tool_input 에서 경로/명령에 해당하는 키의 문자열 값만 수집한다.
 // content/쓰기 본문은 스캔하지 않는다 — 보고서 본문에 "evidence/", "image.raw" 가
 // 언급되는 것만으로 쓰기가 차단되는 과차단을 막기 위함이다.
-const PATHISH_KEY_RE = /^(file_path|filepath|file|filename|target|target_file|targetfile|target_path|targetpath|output|path|command|cmd|command_line|commandline|script|args)$/i;
+const PATHISH_KEY_RE = /^(file_path|filepath|file|filename|target|target_file|targetfile|target_path|targetpath|output|output_path|outputpath|output_dir|outputdir|dest|destination|path|command|cmd|command_line|commandline|script|args)$/i;
+const JSON_CONTAINER_KEY_RE = /^(arguments|args|input|tool_input|parameters)$/i;
+const READONLY_MCP_TOOL_RE = /^(parse_document|detect_format|parse_metadata|parse_pages|parse_table|compare_documents|parse_chunks|parse_form|list_resources|read_resource|query-docs|resolve-library-id)$/i;
 
 function deepCollectPathish(node, out) {
 	if (Array.isArray(node)) {
@@ -69,8 +71,19 @@ function deepCollectPathish(node, out) {
 		return;
 	}
 	if (!node || typeof node !== 'object') return;
+	const mcpToolName = String(node.ToolName || node.tool_name || node.toolName || node.name || '');
+	if (mcpToolName && READONLY_MCP_TOOL_RE.test(mcpToolName)) {
+		return;
+	}
 	for (const [key, value] of Object.entries(node)) {
 		if (typeof value === 'string') {
+			if (JSON_CONTAINER_KEY_RE.test(key)) {
+				const parsed = tryParseJson(unquoteTranscriptVal(value)) ?? tryParseJson(value);
+				if (parsed && typeof parsed === 'object') {
+					deepCollectPathish(parsed, out);
+					continue;
+				}
+			}
 			if (PATHISH_KEY_RE.test(key)) out.push(value);
 		} else if (value && typeof value === 'object') {
 			deepCollectPathish(value, out);
@@ -94,8 +107,8 @@ async function collectSources() {
 	return sources;
 }
 
-const WRITE_OR_CMD_TOOL_RE = /^(write_to_file|replace_file_content|multi_replace_file_content|run_command|WriteToFile|ReplaceFileContent|MultiReplaceFileContent|RunCommand|write_file|Write|Edit|MultiEdit|SearchReplace|StrReplace|Bash|bash|Shell|shell|execute_command)$/i;
-const TARGET_KEY_RE = /^(file_path|filepath|path|target|target_file|targetfile|target_path|targetpath|output|file|filename)$/i;
+const WRITE_OR_CMD_TOOL_RE = /^(write_to_file|replace_file_content|multi_replace_file_content|run_command|WriteToFile|ReplaceFileContent|MultiReplaceFileContent|RunCommand|write_file|WriteFile|Write|Edit|MultiEdit|multiedit|multi_edit|SearchReplace|search_replace|StrReplace|str_replace|apply_patch|generate_document|fill_form|patch_document|redact_document|place_seal|call_mcp_tool|CallMcpTool|Bash|bash|Shell|shell|terminal|Terminal|execute|Execute|execute_command|mcp__.*)$/i;
+const TARGET_KEY_RE = /^(output_path|outputpath|output_dir|outputdir|dest|destination|file_path|filepath|path|target|target_file|targetfile|target_path|targetpath|output|file|filename)$/i;
 // \S 기반이므로 한글/공백 포함 경로도 매칭된다 (구버전 [\w\-\.] 은 ASCII 한정이었다)
 const PATH_LIKE_RE = /([^\s"'`<>|;&]+[\/\\][^\s"'`<>|;&]+\.(?:md|html|txt|json|csv|png|mp4))/i;
 const REDIRECT_RE = /(?:>|>>)\s*([^\s|&;]+(?:\.(?:md|html|txt|json|csv|png|mp4)))/i;
@@ -159,19 +172,28 @@ function extractToolDataFromCall(tc) {
 		rawArgs = tryParseJson(unquoteTranscriptVal(rawArgs)) ?? tryParseJson(rawArgs);
 	}
 	if (!rawArgs || typeof rawArgs !== 'object') return null;
+	const subToolName = unquoteTranscriptVal(rawArgs.ToolName || rawArgs.tool_name || rawArgs.toolName || '');
+	if (subToolName && READONLY_MCP_TOOL_RE.test(subToolName)) return null;
+	let nestedMcpArgs = rawArgs.Arguments ?? rawArgs.arguments;
+	if (typeof nestedMcpArgs === 'string') {
+		nestedMcpArgs = tryParseJson(unquoteTranscriptVal(nestedMcpArgs)) ?? tryParseJson(nestedMcpArgs);
+	}
+	const argSources = nestedMcpArgs && typeof nestedMcpArgs === 'object' ? [nestedMcpArgs, rawArgs] : [rawArgs];
 
 	const getStr = (...keys) => {
-		for (const k of keys) {
-			if (typeof rawArgs[k] === 'string' && rawArgs[k]) {
-				return unquoteTranscriptVal(rawArgs[k]);
+		for (const src of argSources) {
+			for (const k of keys) {
+				if (typeof src[k] === 'string' && src[k]) {
+					return unquoteTranscriptVal(src[k]);
+				}
 			}
 		}
 		return '';
 	};
 
-	let targetFile = getStr('TargetFile', 'target_file', 'file_path', 'filepath', 'path', 'target', 'target_path', 'targetpath', 'output', 'file', 'filename');
+	let targetFile = getStr('output_path', 'outputpath', 'output_dir', 'outputdir', 'dest', 'destination', 'TargetFile', 'target_file', 'file_path', 'filepath', 'path', 'target', 'target_path', 'targetpath', 'output', 'file', 'filename');
 	const commandLine = getStr('CommandLine', 'command_line', 'command', 'cmd', 'script');
-	let codeContent = getStr('CodeContent', 'code_content', 'ReplacementContent', 'replacement_content', 'content', 'new_string', 'text');
+	let codeContent = getStr('CodeContent', 'code_content', 'ReplacementContent', 'replacement_content', 'edited_markdown', 'markdown', 'content', 'new_string', 'text');
 	if (!codeContent && rawArgs.ReplacementChunks !== undefined) {
 		let chunks = rawArgs.ReplacementChunks;
 		if (typeof chunks === 'string') {
@@ -328,15 +350,21 @@ function pathTokens(texts) {
 // 전부 차단으로 간다 — best-effort 가드의 실패폐쇄 방향.
 // ---------------------------------------------------------------------------
 const READ_ONLY_VERBS = /^(sha256sum|md5sum|sha1sum|shasum|sha256deep|cat|ls|dir|file|stat|head|tail|wc|strings|exiftool|fls|ils|icat|img_stat|fsstat|jpeg_extract|python3?|py|node)\b/i;
-const WRITE_SIGNS_RE = /(>|>>|\btee\b|\bdd\b|\bcp\b|\bmv\b|\brm\b|\bshred\b|\btruncate\b|\bchmod\b|\bchown\b|\bchattr\b|\bmkfs\b|\bsponge\b|\binstall\b|\btouch\b|\bmktemp\b|\bsed\b[^\n]*\s-i\b|\b(?:Copy-Item|Move-Item|Remove-Item|New-Item|Rename-Item|Set-Content|Add-Content|Out-File|Clear-Content|sc|ac|ni|ri|mi|cpi|rni)\b)/i;
+const WRITE_SIGNS_RE = /(>|>>|\btee\b|\bdd\b|\bcp\b|\bmv\b|\brm\b|\bshred\b|\btruncate\b|\bchmod\b|\bchown\b|\bchattr\b|\bmkfs\b|\bsponge\b|\binstall\b|\btouch\b|\bmktemp\b|\bsed\b[^\n]*\s-i\b|\bRemove-Item\b|\bSet-Content\b|\bAdd-Content\b|\bOut-File\b|\bCopy-Item\b|\bMove-Item\b|\bClear-Content\b|\bdel\b|\berase\b|(?:\s|^)(?:-e|--eval)\b|(?<![-\w])-\w+=)/i;
+const READONLY_INTERPRETER_SCRIPTS_RE = /(?:^|[\/\\'"\s])(verify_report\.py|forensic_audit\.py|audit_timestamps\.py|coverage_audit\.mjs|verify_legal_factuality\.py|check_tool\.py)(?:['"\s]|$)/i;
 
 function isReadOnlyInspection(text) {
 	const t = String(text).trim();
 	if (!t || t.includes('\n')) return false;              // 멀티라인 스크립트는 판단 불가
-	if (!READ_ONLY_VERBS.test(t.split(/[\s"'`]+/)[0] || '')) return false;
+	if (/[;&|`]|(\$\()/.test(t)) return false;             // 셸 명령 체이닝/치환 차단
+	const firstToken = t.split(/[\s"'`]+/)[0] || '';
+	if (!READ_ONLY_VERBS.test(firstToken)) return false;
 	if (WRITE_SIGNS_RE.test(t)) return false;
-	// 인터프리터 인라인 코드(-c/-m)는 쓰기를 숨길 수 있다 — 판단 불가로 차단 유지
-	if (/\b(python3?|py|node)\b/i.test(t) && /\s-[cm]\b/.test(t)) return false;
+	// 인터프리터 인라인 코드(-c/-m/-e/--eval) 및 비화이트리스트 스크립트는 쓰기를 숨길 수 있어 차단 유지
+	if (/^(python3?|py|node)\b/i.test(firstToken)) {
+		if (/\s(?:-[cme]|--eval)\b/.test(t)) return false;
+		if (!READONLY_INTERPRETER_SCRIPTS_RE.test(t)) return false;
+	}
 	return true;
 }
 

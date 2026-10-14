@@ -6,8 +6,10 @@ verify_report.py 에서 분리(C2). 동작 변경 없이 상수와 컴파일된 
 """
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 # 보고서 기준 타임존: 대한민국 실무 문서는 KST다. 실행 머신의 로컬 TZ과
 # 무관하게 미래 시각 판정 경계를 고정한다.
@@ -74,7 +76,14 @@ KOR_DT_RE = re.compile(
     r"|(?P<hiso>\d{1,2}):(?P<miiso>\d{2})(?::(?P<seiso>\d{2}))?"
     r")?"
 )
-DOT_DATE_RE = re.compile(r"\b(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})\.(?!\d)")
+DOT_DATE_RE = re.compile(
+    r"(?<![vV\w.])(\d{4})\.\s*(\d{1,2})\.\s*(?!0(?!\d))(\d{1,2})(?:\.(?!\d)|(?<=\d{2}\.\d{2})\b(?!\.\d))"
+)
+IMPOSSIBLE_DATE_RE = re.compile(
+    r"(?<![vV\w.])\b(\d{4})[-./](?:00|1[3-9]|[2-9]\d)[-./]\d{1,2}\b"
+    r"|(?<![vV\w.])\b(\d{4})[-./]\d{1,2}[-./](?:00|3[2-9]|[4-9]\d)\b"
+    r"|(?<![vV\w.])\b(\d{4})[-./]0?2[-./](?:29|30|31)\b"
+)
 
 # 법령 조문 인용: 제1016조, 제3조의2, 제3조 제2항 등. "제출/조치" 같은 일반 어휘와 구별.
 LAW_CITATION_RE = re.compile(r"제\s*\d+\s*조(?:\s*의\s*\d+)?(?:\s*제?\s*\d+\s*항)?")
@@ -276,7 +285,7 @@ IMPOSSIBLE_JUDICIAL_PROCEDURE_PATTERNS: list[tuple[re.Pattern, str]] = [
 ]
 
 # 5-1) 법령 조문 상한 경계 검사 (허위 조문 날조 FAIL 차단, 공백 유연성 및 중복 스팬 제거)
-STATUTE_BOUNDS = {
+_STATUTE_BOUNDS_FALLBACK: dict[str, int] = {
     "민법": 1118,
     "형법": 372,
     "개인정보보호법": 76,
@@ -310,7 +319,7 @@ STATUTE_BOUNDS = {
 # 가지번호(제N조의M) 허용 상한 — 초과 인용은 날조 (예: 민법 제1118조의99)
 # 주의: 상한은 법 개정마다 변한다. 정보통신망법 제44조의7(도청) 등 실존
 # 조문을 차단하지 않도록 실측 상한을 유지할 것.
-STATUTE_SUBARTICLES: dict[str, int] = {
+_STATUTE_SUBARTICLES_FALLBACK: dict[str, int] = {
     "민법": 2,
     "형법": 2,
     "형사소송법": 6,
@@ -318,15 +327,21 @@ STATUTE_SUBARTICLES: dict[str, int] = {
     "정보통신망법": 7,  # 제44조의2~제44조의7 실존
     "정보통신망 이용촉진 및 정보보호 등에 관한 법률": 7,
     "부정경쟁방지법": 0,
+    "부정경쟁방지 및 영업비밀보호에 관한 법률": 0,
     "전자문서법": 0,
+    "전자문서 및 전자거래 기본법": 0,
     "민사소송법": 6,
     "상법": 5,
     "행정소송법": 0,
     "근로기준법": 2,
     "특정금융정보법": 0,
+    "특정 금융거래정보의 보고 및 이용 등에 관한 법률": 0,
     "전자상거래법": 0,
+    "전자상거래 등에서의 소비자보호에 관한 법률": 0,
     "자본시장법": 4,
+    "자본시장과 금융투자업에 관한 법률": 4,
     "신용정보법": 0,
+    "신용정보의 이용 및 보호에 관한 법률": 0,
     "소비자기본법": 0,
     "가사소송법": 0,
     "특허법": 3,
@@ -334,6 +349,26 @@ STATUTE_SUBARTICLES: dict[str, int] = {
     "도로교통법": 24,
     "의료법": 0,
 }
+
+
+def _load_statute_dict(filename: str, key: str, fallback: dict[str, int]) -> dict[str, int]:
+    merged = dict(fallback)
+    json_path = Path(__file__).resolve().parent.parent / "data" / filename
+    if json_path.exists():
+        try:
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+            raw = data.get(key, {})
+            if isinstance(raw, dict):
+                for k, v in raw.items():
+                    if isinstance(v, int):
+                        merged[str(k)] = v
+        except Exception:
+            pass
+    return merged
+
+
+STATUTE_BOUNDS: dict[str, int] = _load_statute_dict("statute_bounds.json", "bounds", _STATUTE_BOUNDS_FALLBACK)
+STATUTE_SUBARTICLES: dict[str, int] = _load_statute_dict("statute_subarticles.json", "subarticles", _STATUTE_SUBARTICLES_FALLBACK)
 
 
 def _make_statute_pattern(statute_name: str) -> re.Pattern:
@@ -348,9 +383,9 @@ def _make_statute_pattern(statute_name: str) -> re.Pattern:
 #    조합(예: "2024자연 12345")을 판례로 오탐하는 것을 방지하기 위해
 #    법원명 선행 또는 선고/판결/결정/사건/호 후행 어미를 요구한다.
 PRECEDENT_RE = re.compile(
-    r"(?:대법원|서울고등법원|서울중앙지방법원|[가-힣]{2,6}지방법원|[가-힣]{2,6}고등법원|헌법재판소)?\s*"
+    r"\b(?P<court>대법원|헌법재판소|특허법원|[가-힣]{2,6}회생법원|[가-힣]{2,6}가정법원|[가-힣]{2,6}행정법원|[가-힣]{2,6}고등법원|서울중앙지방법원|[가-힣]{2,6}지방법원)?\s*"
     r"(?P<year>\d{4})\s*(?P<code>[가-힣]{1,4})\s*(?P<num>\d+)\b"
-    r"(?=\s*(?:선고|판결|결정|사건|호|판시|대법원|지방법원|고등법원))"
+    r"(?=(?:\s*(?:[가-힣]{1,10}\s+)?(?:선고|판결|결정|심판|명령|사건|호|판시|대법원|지방법원|고등법원))|\s*$)"
 )
 VALID_CASE_CODES = {
     # 민사

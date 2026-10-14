@@ -77,6 +77,16 @@ $defaultConfig = @{
         "lazyargon-workspace" = @{ enabled = $true }
     }
 }
+if (!(Test-Path $configPath)) {
+    $configDir = Split-Path -Parent $configPath
+    if (!(Test-Path $configDir)) {
+        New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+    }
+    $defaultConfig | ConvertTo-Json -Depth 5 | Set-Content -Path $configPath -Encoding UTF8
+    Write-Host "Created default config at $configPath" -ForegroundColor Cyan
+} else {
+    Write-Host "Existing config preserved at $configPath" -ForegroundColor Cyan
+}
 
 Set-Location $originalLocation
 Write-Host "Setup Completed Successfully! (PASS)" -ForegroundColor Green

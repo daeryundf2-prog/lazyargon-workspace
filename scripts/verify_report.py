@@ -229,8 +229,8 @@ def main(argv=None):
                 orphan_times = [t for t in extract_timestamps(line) if t not in tl_times]
                 if orphan_times:
                     warnings.append(f"타임라인에 없는 시각 {orphan_times[:3]} — 근거 시각만 사용해야 함")
-        except Exception:
-            pass
+        except Exception as exc:
+            warnings.append(f"타임라인 파일 읽기 실패({args.timeline}): {exc} — 시각 대조가 생략되었습니다")
 
     # 5) 법령 환각: 조문 인용이 있으면 korean_law MCP 출처 표기 요구 (자동 대조 불가 → WARN)
     citations = sorted(set(LAW_CITATION_RE.findall(text)))

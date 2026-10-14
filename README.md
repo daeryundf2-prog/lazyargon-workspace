@@ -46,15 +46,15 @@
 수동으로 실행해야 한다.
 
 ```bash
-git clone https://github.com/daeryundf2-prog/lazyforensic && cd lazyforensic
-python -m pytest test/ -v   # 권장: 297개 테스트 (로컬 약 30~40초). pytest 없으면 python -m unittest discover -s test
+git clone https://github.com/daeryundf2-prog/lazyargon-workspace && cd lazyargon-workspace
+node scripts/run_tests.mjs   # 권장: 650+ 테스트 (test/ + tests/ 통합 실행). 개별 실행은 python -m pytest test/ -v
 ```
 
 ### C. 다른 컴퓨터에서 한 방 세팅 (선택 의존성 포함)
 
 ```bash
-git clone https://github.com/daeryundf2-prog/lazyforensic.git
-cd lazyforensic && sh bootstrap.sh        # Windows는 scripts/setup_forensic_env.ps1
+git clone https://github.com/daeryundf2-prog/lazyargon-workspace.git
+cd lazyargon-workspace && sh bootstrap.sh        # Windows는 scripts/setup_forensic_env.ps1
 export PATH="$PWD/bin:$PATH"              # 셸 설정에 추가하면 영구 적용
 ```
 
@@ -128,7 +128,7 @@ python scripts/korean_morph_forensic.py --evidence case/audit.json --report case
 
 | 요청 | 상태 | 조건 |
 | :--- | :--- | :--- |
-| 카카오톡 텍스트 내보내기 파싱 (모바일/PC) | ✅ | 텍스트 내보내기만. SQLite/백업 DB ❌ (SQLite 분석은 lazyothers sqlite-evidence-query 스킬 활용) |
+| 카카오톡 텍스트 내보내기 파싱 (모바일/PC) | ✅ | 텍스트 내보내기만. SQLite/백업 DB ❌ (SQLite 분석은 본 플러그인의 `sqlite-evidence-query` 스킬 활용) |
 | 타임라인 HTML 렌더 (XSS 이스케이프, 샘플 거부) | ✅ | events.json 필요 |
 | 파일 MAC 시각 + SHA-256/MD5 감사 | ✅ | `os.stat` 표면값. `$MFT`/Timestomping 판정 ❌ |
 | 보고서 초안 검증 (금지 문구/해시/법령상한/High-Fidelity/형태소 그라운딩) | ✅ | `verify_report.py` (--evidence, --morph-grounding, --high-fidelity) |
@@ -143,7 +143,7 @@ python scripts/korean_morph_forensic.py --evidence case/audit.json --report case
 | 오디오 내용 지문·유사 쌍 | 🟡 BYO | `python scripts/audio_fingerprint.py <폴더>` — fpcalc(chromaprint) 필요, 재인코딩된 같은 녹음도 지문 유사도로 탐지 |
 | 다중 소스 타임라인 병합 | ✅ | `python scripts/merge_timeline.py --manifest m.json --kakao k.json --exif e.json [--stt t.json --anchor "파일=시각"]` → `events.json` (STT 상대시각은 --anchor 없이 벽시계로 올리지 않음) |
 | 서증 목록표 초안 | ✅ | `python scripts/court_evidence_sheet.py <manifest.json> --party 갑` — 관행 양식 **초안**(제출 전 검토 필수), 입증취지는 `--purpose` 지정분만 기재 |
-| lazyothers 증거 JSON보내기 | ✅ | `python scripts/evidence_export.py <manifest.json> -o evidence.json` — lazyothers `generate_evidence_doc.py`/`bind_court_pdf.py`가 그대로 소비하는 형식 (scan→서증→표찰·병합 파이프라인) |
+| 전자소송 서증 JSON 내보내기 | ✅ | `python scripts/evidence_export.py <manifest.json> -o evidence.json` — `generate_evidence_doc.py`/`bind_court_pdf.py`가 그대로 소비하는 형식 (scan→서증→표찰·병합 파이프라인) |
 | DLP 로그 체크리스트 정리 | ✅ | `python scripts/dlp_log_table.py <로그.csv>` — 확보된 로그의 시간순·4축 재배열. **탐지 아님** — 없는 로그는 만들지 않음 |
 | CLI 래퍼 | ✅ | `bin/lazyforensic scan\|stt\|pii\|manifest\|timeline\|sheet\|export\|dlp ...` — `bin/`을 PATH에 추가. Windows는 `bin/lazyforensic.cmd`(또는 `.ps1`)로 동일 서브커맨드 |
 | 유사 이미지 검색 (pHash/aHash/dHash+색 히스토그램) | ✅ | `python scripts/image_similarity.py <폴더> [--query 사진]` — Pillow 필요, 리사이즈·재압축본도 해밍 거리로 탐지 |
@@ -201,22 +201,19 @@ python scripts/korean_morph_forensic.py --evidence case/audit.json --report case
 ## 테스트 / CI
 
 ```bash
-python -m pytest test/ -v
+node scripts/run_tests.mjs
 ```
 
 CI 워크플로: Ubuntu/Windows 유닛 테스트 + 훅 가드 단언, korean-law-mcp 빌드+vitest.
 
-## Lazy 생태계 (레포 경계)
+## LazyArgon 생태계 (2대 통합 플러그인 경계)
 
-- `LAZYANTIGRAVITY` — 런타임 우산: 훅 집계·공유 스킬 물질화·번들 MCP 런타임
-- `lazyforensic` (본 레포) — 포렌식/한국법률 도메인 플러그인
-- `lazyothers` — 리걸 문서·HWP·humanize 도메인 플러그인
-- `lazyagentic` — 규칙 전용 거버넌스 플러그인 (Dual-Mount `~/agentic`)
+- `lazyargon` — 코어 오케스트레이션·자율 실행(`/ulw`)·병렬 Argon 4 서브에이전트·프로그래밍·디버깅·디자인·GF-QA 검증 플러그인
+- `lazyargon-workspace` (본 레포, 구 `lazyforensic` + `lazyothers` 통합) — 디지털 포렌식·한국 리걸테크·공문서(`kordoc`)·전자소송(ECFS)·`humanize-korean` 도메인 플러그인
 - [`korean-law-mcp`](https://github.com/daeryundf2-prog/korean-law-mcp) — 한국법 조회 MCP 서버.
-  본 레포가 `setup_korean_law.mjs`로 클론·빌드해 사용하고, LAZYANTIGRAVITY는 빌드본을 번들한다.
+  본 레포가 `setup_korean_law.mjs`로 클론·빌드해 사용한다.
 
-공유 자산: `scripts/coverage_audit.mjs`는 lazyforensic(캐노니컬)·lazyothers·LAZYANTIGRAVITY
-3곳에 바이트 동일 사본으로 유지된다 — 수정 시 3곳 동기화 필수 (파일 헤더 주석 참조).
+공유 자산: `scripts/coverage_audit.mjs`, `scripts/markdown_structure_guard.mjs`, `scripts/stop_claim_guard.mjs`는 `lazyargon-workspace`(캐노니컬)와 `lazyargon` 양쪽에 동기화된다 (`bash scripts/sync_guard_pack.sh`).
 
 ## 라이선스
 

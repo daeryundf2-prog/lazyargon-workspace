@@ -463,11 +463,14 @@ const FINDING_CHECKS = [
 	},
 ];
 
-function scanMarkdown(text) {
+export function scanMarkdown(text, truncated = false) {
 	const lines = text.split(/\r?\n/);
 	const masked = maskCodeSpans(lines);
 	const findings = [];
 	for (const check of FINDING_CHECKS) {
+		if (truncated && (check.id === 'unclosed_code_fence' || check.id === 'unclosed_evidence_tag')) {
+			continue;
+		}
 		try {
 			const hits = check.run(lines, masked);
 			if (hits.length > 0) findings.push({ id: check.id, message: check.message, lines: hits.slice(0, 8) });
@@ -485,7 +488,7 @@ function readFileCapped(file) {
 		const len = Math.min(READ_CAP_BYTES, size);
 		const buf = Buffer.alloc(len);
 		fs.readSync(fd, buf, 0, len, 0);
-		return buf.toString('utf-8');
+		return { text: buf.toString('utf-8'), truncated: size > READ_CAP_BYTES };
 	} finally {
 		fs.closeSync(fd);
 	}
@@ -510,12 +513,13 @@ async function hookMode() {
 	if (!targetFile || !/\.md$/i.test(targetFile)) passHook(); // .md 만 감시
 	if (!fs.existsSync(targetFile)) passHook();
 	let text;
+	let truncated = false;
 	try {
-		text = readFileCapped(targetFile);
+		({ text, truncated } = readFileCapped(targetFile));
 	} catch {
 		passHook(); // 읽기 실패는 오탐 방지 — 통과
 	}
-	const findings = scanMarkdown(text);
+	const findings = scanMarkdown(text, truncated);
 	if (findings.length > 0) {
 		reportFindings(targetFile, findings);
 		process.exit(1);
@@ -543,12 +547,13 @@ function checkMode(paths) {
 	}
 	for (const file of files) {
 		let text;
+		let truncated = false;
 		try {
-			text = readFileCapped(file);
+			({ text, truncated } = readFileCapped(file));
 		} catch {
 			continue;
 		}
-		const findings = scanMarkdown(text);
+		const findings = scanMarkdown(text, truncated);
 		if (findings.length > 0) {
 			failed += 1;
 			reportFindings(file, findings);

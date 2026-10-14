@@ -438,6 +438,7 @@ function timelineCandidates(targetFile) {
 // Python 탐색: OS별 최적 순서 및 Windows Store alias 오탐 배제
 const PYTHON_CANDIDATES = process.platform === 'win32'
 	? [
+		...(fs.existsSync(join(root, '.venv', 'Scripts', 'python.exe')) ? [{ cmd: join(root, '.venv', 'Scripts', 'python.exe'), pre: [] }] : []),
 		{ cmd: 'python', pre: [] },
 		{ cmd: 'py', pre: ['-3'] },
 		{ cmd: 'python3', pre: [] },

@@ -9,6 +9,7 @@
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -916,9 +917,31 @@ class AntigravityRuntimeTranscriptPayloadTests(unittest.TestCase):
         env = os.environ.copy()
         env.pop("PLUGIN_ROOT", None)
 
+        sh_bin = shutil.which("sh")
+        if not sh_bin and os.name == "nt":
+            for candidate in (
+                r"C:\Program Files\Git\bin\sh.exe",
+                r"C:\Program Files\Git\usr\bin\sh.exe",
+                r"C:\Program Files (x86)\Git\bin\sh.exe",
+            ):
+                if os.path.exists(candidate):
+                    sh_bin = candidate
+                    break
+
         def run_sh(cmd: str, payload: str):
+            if sh_bin:
+                return subprocess.run(
+                    [sh_bin, "-c", cmd],
+                    input=payload,
+                    text=True,
+                    encoding="utf-8",
+                    capture_output=True,
+                    cwd=str(ROOT),
+                    env=env,
+                )
             return subprocess.run(
-                ["sh", "-c", cmd],
+                cmd,
+                shell=True,
                 input=payload,
                 text=True,
                 encoding="utf-8",
@@ -958,6 +981,123 @@ class AntigravityRuntimeTranscriptPayloadTests(unittest.TestCase):
             self.assertEqual(proc_post.returncode, 0, f"{cmd}: {proc_post.stderr}")
             self.assertEqual(json.loads(proc_post.stdout), {})
 
+    def test_evidence_guard_exiftool_write_and_nonwhitelisted_python_blocked(self):
+        # exiftool -Artist=hacker on evidence directory must be blocked
+        p1 = json.dumps({"tool_input": {"command": "exiftool -Artist=hacker evidence/photo.jpg"}})
+        r1 = run_guard("evidence_guard.mjs", ["pre-tool-use"], stdin_payload=p1)
+        self.assertEqual(r1.returncode, 1)
+        self.assertIn("BLOCKED", r1.stderr)
+
+        # exiftool -j read-only on evidence directory must pass
+        p2 = json.dumps({"tool_input": {"command": "exiftool -j evidence/photo.jpg"}})
+        r2 = run_guard("evidence_guard.mjs", ["pre-tool-use"], stdin_payload=p2)
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+
+        # arbitrary python script on protected evidence file must be blocked
+        p3 = json.dumps({"tool_input": {"command": "python scripts/custom_mutator.py case.e01"}})
+        r3 = run_guard("evidence_guard.mjs", ["pre-tool-use"], stdin_payload=p3)
+        self.assertEqual(r3.returncode, 1)
+        self.assertIn("BLOCKED", r3.stderr)
+
+        # whitelisted verify_report.py on evidence directory must pass
+        p4 = json.dumps({"tool_input": {"command": "python scripts/verify_report.py report.md --evidence evidence/audit.json"}})
+        r4 = run_guard("evidence_guard.mjs", ["pre-tool-use"], stdin_payload=p4)
+        self.assertEqual(r4.returncode, 0, r4.stderr)
+
+    def test_verify_report_version_vs_impossible_dates_and_missing_timeline_warn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            ok_report = tmp_path / "ok_report.md"
+            ok_report.write_text(
+                "# 포렌식 보고서\n\n도구 버전: EvtxECmd 2026.5.0. 및 Hayabusa v2026.5.0 사용.\n분석 일자: 2025. 10. 14.\n",
+                encoding="utf-8",
+            )
+            r_ok = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "verify_report.py"), str(ok_report), "--timeline", str(tmp_path / "missing_tl.json"), "--json"],
+                capture_output=True, text=True, encoding="utf-8",
+            )
+            self.assertEqual(r_ok.returncode, 0, r_ok.stderr)
+            ok_data = json.loads(r_ok.stdout)
+            self.assertEqual(ok_data["errors"], [])
+            self.assertTrue(any("타임라인 파일 읽기 실패" in w for w in ok_data["warnings"]), ok_data["warnings"])
+
+            bad_report = tmp_path / "bad_report.md"
+            bad_report.write_text(
+                "# 포렌식 보고서\n\n사건 일자: 2026.02.30 및 2026-00-00 및 2026-13-01 확인.\n",
+                encoding="utf-8",
+            )
+            r_bad = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "verify_report.py"), str(bad_report), "--json"],
+                capture_output=True, text=True, encoding="utf-8",
+            )
+            self.assertEqual(r_bad.returncode, 1)
+            bad_data = json.loads(r_bad.stdout)
+            err_joined = " ".join(bad_data["errors"])
+            self.assertIn("2026-02-30", err_joined)
+            self.assertIn("2026-00-00", err_joined)
+            self.assertIn("2026-13-01", err_joined)
+
+    def test_legal_factuality_guard_html_and_beyond_2000_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            html_file = tmp_path / "brief_draft.html"
+            padding = "<!-- " + ("A" * 3000) + " -->\n"
+            html_file.write_text(
+                padding + "<html><body><h1>소장</h1><p>청구원인: 피고는 민법 제9999조를 위반하였습니다.</p></body></html>",
+                encoding="utf-8",
+            )
+            payload = json.dumps({"tool_input": {"file_path": str(html_file)}})
+            proc = run_guard("legal_factuality_guard.mjs", [], stdin_payload=payload)
+            self.assertEqual(proc.returncode, 1)
+            out = json.loads(proc.stdout)
+            self.assertEqual(out.get("decision"), "block")
+
+    def test_evidence_guard_call_mcp_tool_blocks_write_and_allows_readonly(self):
+        # 1) call_mcp_tool writing to output_path in evidence/ must be blocked
+        p_write = json.dumps({
+            "tool_name": "call_mcp_tool",
+            "tool_input": {
+                "ServerName": "lazyargon-workspace_kordoc",
+                "ToolName": "patch_document",
+                "Arguments": {
+                    "file_path": "out/template.hwpx",
+                    "output_path": "evidence/tampered.hwpx",
+                },
+            },
+        })
+        r_write = run_guard("evidence_guard.mjs", ["pre-tool-use"], stdin_payload=p_write)
+        self.assertEqual(r_write.returncode, 1)
+        self.assertEqual(json.loads(r_write.stdout).get("decision"), "deny")
+
+        # 2) call_mcp_tool with JSON-string Arguments writing to protected extension must be blocked
+        p_str_args = json.dumps({
+            "toolCall": {
+                "name": "call_mcp_tool",
+                "arguments": json.dumps({
+                    "ServerName": "lazyargon-workspace_kordoc",
+                    "ToolName": "generate_document",
+                    "Arguments": json.dumps({"output_path": "out/image.raw"}),
+                }),
+            },
+        })
+        r_str_args = run_guard("evidence_guard.mjs", ["pre-tool-use"], stdin_payload=p_str_args)
+        self.assertEqual(r_str_args.returncode, 1)
+        self.assertEqual(json.loads(r_str_args.stdout).get("decision"), "deny")
+
+        # 3) call_mcp_tool calling read-only parse_document on evidence/ must be allowed
+        p_read = json.dumps({
+            "tool_name": "call_mcp_tool",
+            "tool_input": {
+                "ServerName": "lazyargon-workspace_kordoc",
+                "ToolName": "parse_document",
+                "Arguments": {"file_path": "evidence/original.hwpx"},
+            },
+        })
+        r_read = run_guard("evidence_guard.mjs", ["pre-tool-use"], stdin_payload=p_read)
+        self.assertEqual(r_read.returncode, 0, r_read.stderr)
+        self.assertEqual(json.loads(r_read.stdout).get("decision"), "allow")
+
 
 if __name__ == "__main__":
     unittest.main()
+

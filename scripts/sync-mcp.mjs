@@ -93,7 +93,20 @@ try {
     try {
       execSync(`uv pip install -r requirements.txt`, { cwd: pluginRoot, stdio: "inherit", timeout: 30000 });
     } catch {
-      execSync(`python3 -m pip install -r requirements.txt`, { cwd: pluginRoot, stdio: "inherit", timeout: 30000 });
+      const pyFallbacks = process.platform === "win32" ? ["python", "py -3", "python3"] : ["python3", "python"];
+      let installed = false;
+      for (const pyCmd of pyFallbacks) {
+        try {
+          execSync(`${pyCmd} -m pip install -r requirements.txt`, { cwd: pluginRoot, stdio: "inherit", timeout: 30000 });
+          installed = true;
+          break;
+        } catch {
+          // try next candidate
+        }
+      }
+      if (!installed) {
+        throw new Error("All python pip fallback candidates failed");
+      }
     }
   }
 } catch {

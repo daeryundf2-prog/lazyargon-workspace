@@ -308,15 +308,39 @@ function isPluginInternalDoc(targetFile) {
 	}
 }
 
+const READ_CAP_BYTES = 2 * 1024 * 1024;
+const TAIL_BYTES = 512 * 1024;
+
+function readSamples(filePath) {
+	try {
+		const stat = fs.statSync(filePath);
+		if (stat.size <= READ_CAP_BYTES) {
+			return [fs.readFileSync(filePath, "utf8")];
+		}
+		const fd = fs.openSync(filePath, "r");
+		try {
+			const headBuf = Buffer.alloc(READ_CAP_BYTES);
+			fs.readSync(fd, headBuf, 0, READ_CAP_BYTES, 0);
+			const tailLen = Math.min(TAIL_BYTES, stat.size - READ_CAP_BYTES);
+			const tailBuf = Buffer.alloc(tailLen);
+			fs.readSync(fd, tailBuf, 0, tailLen, stat.size - tailLen);
+			return [headBuf.toString("utf8"), tailBuf.toString("utf8")];
+		} finally {
+			fs.closeSync(fd);
+		}
+	} catch {
+		return [];
+	}
+}
+
 function shouldAudit(filePath) {
 	if (isPluginInternalDoc(filePath)) return false;
-	if (!/\.(md|txt)$/i.test(filePath)) return false;
+	if (!/\.(md|html|txt)$/i.test(filePath)) return false;
 	if (LEGAL_TRIGGER_RE.test(filePath)) return true;
 	if (fs.existsSync(filePath)) {
-		try {
-			const head = fs.readFileSync(filePath, "utf8").slice(0, 2000);
-			if (LEGAL_TRIGGER_RE.test(head)) return true;
-		} catch {}
+		for (const chunk of readSamples(filePath)) {
+			if (LEGAL_TRIGGER_RE.test(chunk)) return true;
+		}
 	}
 	return false;
 }
@@ -378,15 +402,33 @@ async function main() {
 	}
 
 	const venvPy = join(root, ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
-	const pyCandidates = [...(fs.existsSync(venvPy) ? [venvPy] : []), ...(process.platform === "win32" ? ["python", "py", "python3"] : ["python3", "python"])];
+	const pyCandidates = [
+		...(fs.existsSync(venvPy) ? [{ cmd: venvPy, pre: [] }] : []),
+		...(process.platform === "win32"
+			? [
+					{ cmd: "python", pre: [] },
+					{ cmd: "py", pre: ["-3"] },
+					{ cmd: "python3", pre: [] },
+				]
+			: [
+					{ cmd: "python3", pre: [] },
+					{ cmd: "python", pre: [] },
+				]),
+	];
 	let res = null;
-	for (const py of pyCandidates) {
-		res = spawnSync(py, verifyArgs, {
+	for (const { cmd, pre } of pyCandidates) {
+		const candidateRes = spawnSync(cmd, [...pre, ...verifyArgs], {
 			cwd: root,
 			encoding: "utf-8",
 			windowsHide: true,
 		});
-		if (!res.error && res.status !== 9009) break;
+		const isWinStoreAlias =
+			candidateRes.status === 9009 ||
+			(candidateRes.stderr && /Microsoft Store|WindowsApps|AppExecutionAlias/i.test(candidateRes.stderr));
+		if (!candidateRes.error && !isWinStoreAlias) {
+			res = candidateRes;
+			break;
+		}
 	}
 
 	if (!res || res.error) {

@@ -1,4 +1,4 @@
-# CLAUDE.md — LazyOthers 저장소 작업 규범
+# CLAUDE.md — LazyArgon Workspace 저장소 작업 규범
 
 이 파일은 이 저장소(플러그인) 안에서 에이전트가 작업할 때의 공통 규범과
 정책 문서의 SSOT다. 스킬 실행 규칙 자체는 각 `skills/*/SKILL.md`가 담당하고,

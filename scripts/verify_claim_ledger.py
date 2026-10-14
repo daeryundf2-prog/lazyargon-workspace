@@ -28,13 +28,32 @@ TWO_PART_CCTLDS = {
 
 INVALID_COUNTER_VALUES = {"n/a", "na", "-", "—", "none", "null", "", "없음", "해당없음", "미수행", "미검증"}
 
-ALL_STATUTE_NAMES = (
-    "민법|형법|개인정보보호법|정보통신망법|정보통신망 이용촉진 및 정보보호 등에 관한 법률|"
-    "상법|민사소송법|형사소송법|행정소송법|근로기준법|부정경쟁방지법|부정경쟁방지 및 영업비밀보호에 관한 법률|"
-    "전자문서법|전자문서 및 전자거래 기본법|특정금융정보법|특정 금융거래정보의 보고 및 이용 등에 관한 법률|"
-    "전자상거래법|전자상거래 등에서의 소비자보호에 관한 법률|자본시장법|자본시장과 금융투자업에 관한 법률|"
-    "신용정보법|신용정보의 이용 및 보호에 관한 법률|소비자기본법|가사소송법|특허법|저작권법"
-)
+_DEFAULT_STATUTE_NAMES = [
+    "민법", "형법", "개인정보보호법", "정보통신망법", "정보통신망 이용촉진 및 정보보호 등에 관한 법률",
+    "상법", "민사소송법", "형사소송법", "행정소송법", "근로기준법", "부정경쟁방지법", "부정경쟁방지 및 영업비밀보호에 관한 법률",
+    "전자문서법", "전자문서 및 전자거래 기본법", "특정금융정보법", "특정 금융거래정보의 보고 및 이용 등에 관한 법률",
+    "전자상거래법", "전자상거래 등에서의 소비자보호에 관한 법률", "자본시장법", "자본시장과 금융투자업에 관한 법률",
+    "신용정보법", "신용정보의 이용 및 보호에 관한 법률", "소비자기본법", "가사소송법", "특허법", "저작권법",
+    "도로교통법", "의료법",
+]
+
+
+def _build_all_statute_names() -> str:
+    names = set(_DEFAULT_STATUTE_NAMES)
+    bounds_path = Path(__file__).resolve().parent.parent / "data" / "statute_bounds.json"
+    if bounds_path.exists():
+        try:
+            data = json.loads(bounds_path.read_text(encoding="utf-8"))
+            bounds = data.get("bounds", {})
+            if isinstance(bounds, dict):
+                names.update(str(k) for k in bounds.keys())
+        except Exception:
+            pass
+    sorted_names = sorted(names, key=len, reverse=True)
+    return "|".join(re.escape(n) for n in sorted_names)
+
+
+ALL_STATUTE_NAMES = _build_all_statute_names()
 
 
 def extract_registrable_domain(hostname: str) -> str:
