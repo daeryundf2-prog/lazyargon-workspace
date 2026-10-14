@@ -21,7 +21,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "^(write_to_file|WriteToFile|write_file|WriteFile|replace_file_content|ReplaceFileContent|multi_replace_file_content|MultiReplaceFileContent|apply_patch|write|Write|edit|Edit|multi_edit|multiedit|MultiEdit|search_replace|SearchReplace|str_replace|StrReplace|generate_document|fill_form|patch_document|redact_document|place_seal|Bash|bash|shell|Shell|run_command|RunCommand|terminal|Terminal|execute|Execute|execute_command|call_mcp_tool|CallMcpTool|mcp__.*)$",
+        "matcher": "^(write_to_file|WriteToFile|write_file|WriteFile|replace_file_content|ReplaceFileContent|multi_replace_file_content|MultiReplaceFileContent|apply_patch|write|Write|edit|Edit|multi_edit|multiedit|MultiEdit|search_replace|SearchReplace|str_replace|StrReplace|generate_document|fill_form|patch_document|redact_document|place_seal|Bash|bash|shell|Shell|run_command|RunCommand|terminal|Terminal|execute|Execute|execute_command)$",
         "hooks": [
           {
             "type": "command",

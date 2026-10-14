@@ -194,6 +194,25 @@ function extractTargetFromNode(node, out) {
 	}
 }
 
+function readTailLines(filePath, maxLines = 50, maxBytes = 512 * 1024) {
+	const stat = fs.statSync(filePath);
+	let text;
+	if (stat.size <= maxBytes) {
+		text = fs.readFileSync(filePath, 'utf8');
+	} else {
+		const fd = fs.openSync(filePath, 'r');
+		try {
+			const buf = Buffer.allocUnsafe(maxBytes);
+			fs.readSync(fd, buf, 0, maxBytes, stat.size - maxBytes);
+			const nlIdx = buf.indexOf(0x0a);
+			text = (nlIdx >= 0 ? buf.subarray(nlIdx + 1) : buf).toString('utf8');
+		} finally {
+			fs.closeSync(fd);
+		}
+	}
+	return text.split(/\r?\n/).filter((l) => l.trim().length > 0).slice(-maxLines).reverse();
+}
+
 function extractFromTranscript(payloadOrPath) {
 	const paths = resolveTranscriptPaths(payloadOrPath);
 	const targetStepIdx =
@@ -207,8 +226,7 @@ function extractFromTranscript(payloadOrPath) {
 
 	for (const tp of paths) {
 		try {
-			const content = fs.readFileSync(tp, 'utf8');
-			const lines = content.split(/\r?\n/).filter((l) => l.trim().length > 0).slice(-50).reverse();
+			const lines = readTailLines(tp, 50);
 			const parsedSteps = [];
 			let hasTruncatedToolCalls = false;
 			for (const line of lines) {
@@ -223,6 +241,7 @@ function extractFromTranscript(payloadOrPath) {
 				continue;
 			}
 
+			let matchedToolStep = false;
 			const searchSteps = (respectStepIdx) => {
 				for (const { step, line } of parsedSteps) {
 					const stepIdxVal = typeof step.step_index === 'number' ? step.step_index : typeof step.stepIdx === 'number' ? step.stepIdx : undefined;
@@ -236,16 +255,20 @@ function extractFromTranscript(payloadOrPath) {
 							: step.toolCall && typeof step.toolCall === 'object'
 								? [step.toolCall]
 								: [];
-					if (respectStepIdx && targetStepIdx !== undefined && stepIdxVal !== undefined && targetStepIdx > stepIdxVal) {
-						const callOffset = targetStepIdx - stepIdxVal - 1;
-						if (callOffset >= 0 && callOffset < calls.length) {
-							const data = extractToolDataFromCall(calls[callOffset]);
+					if (calls.length > 0) {
+						if (respectStepIdx) matchedToolStep = true;
+						if (respectStepIdx && targetStepIdx !== undefined && stepIdxVal !== undefined && targetStepIdx > stepIdxVal) {
+							const callOffset = targetStepIdx - stepIdxVal - 1;
+							if (callOffset >= 0 && callOffset < calls.length) {
+								const data = extractToolDataFromCall(calls[callOffset]);
+								return data && data.targetFile ? data : null;
+							}
+						}
+						for (let i = calls.length - 1; i >= 0; i -= 1) {
+							const data = extractToolDataFromCall(calls[i]);
 							if (data && data.targetFile) return data;
 						}
-					}
-					for (let i = calls.length - 1; i >= 0; i -= 1) {
-						const data = extractToolDataFromCall(calls[i]);
-						if (data && data.targetFile) return data;
+						return null;
 					}
 					const directData = extractToolDataFromCall(step);
 					if (directData && directData.targetFile) return directData;
@@ -267,7 +290,7 @@ function extractFromTranscript(payloadOrPath) {
 				return null;
 			};
 
-			const hit = searchSteps(true) || (targetStepIdx !== undefined ? searchSteps(false) : null);
+			const hit = searchSteps(true) || (!matchedToolStep && targetStepIdx !== undefined ? searchSteps(false) : null);
 			if (hit) return hit;
 		} catch {
 			// continue to next candidate

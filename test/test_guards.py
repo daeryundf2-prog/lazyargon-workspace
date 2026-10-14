@@ -1097,6 +1097,48 @@ class AntigravityRuntimeTranscriptPayloadTests(unittest.TestCase):
         self.assertEqual(r_read.returncode, 0, r_read.stderr)
         self.assertEqual(json.loads(r_read.stdout).get("decision"), "allow")
 
+    def test_post_tool_use_does_not_walk_back_to_stale_report_on_subsequent_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            brain_dir = tmp_path / "brain" / "conv-no-walkback"
+            logs_dir = brain_dir / ".system_generated" / "logs"
+            logs_dir.mkdir(parents=True, exist_ok=True)
+
+            bad_report = tmp_path / "포렌식_보고서.md"
+            bad_report.write_text("# 감정서\n\n이 증거는 유출 확정이며 민법 제1500조에 따라 법원에 유효하다.\n| A | B |\n|---|---|\n| 1 | 2 | 3 |\n", encoding="utf-8")
+
+            step_write = {
+                "step_index": 4,
+                "source": "MODEL",
+                "type": "PLANNER_RESPONSE",
+                "status": "DONE",
+                "tool_calls": [{"name": "write_to_file", "args": {"TargetFile": str(bad_report), "CodeContent": "# 감정서"}}],
+            }
+            step_write_res = {"step_index": 5, "source": "MODEL", "type": "GENERIC", "status": "DONE", "content": "ok"}
+            step_cmd = {
+                "step_index": 6,
+                "source": "MODEL",
+                "type": "PLANNER_RESPONSE",
+                "status": "DONE",
+                "tool_calls": [{"name": "run_command", "args": {"CommandLine": "git status"}}],
+            }
+            step_cmd_res = {"step_index": 7, "source": "MODEL", "type": "GENERIC", "status": "DONE", "content": "ok"}
+
+            transcript_text = "\n".join(json.dumps(s, ensure_ascii=False) for s in (step_write, step_write_res, step_cmd, step_cmd_res)) + "\n"
+            (logs_dir / "transcript.jsonl").write_text(transcript_text, encoding="utf-8")
+            (logs_dir / "transcript_full.jsonl").write_text(transcript_text, encoding="utf-8")
+
+            payload = json.dumps({
+                "conversationId": "conv-no-walkback",
+                "transcriptPath": str(logs_dir / "transcript.jsonl"),
+                "artifactDirectoryPath": str(brain_dir),
+                "stepIdx": 7,
+            })
+            for guard in ("hallucination_guard.mjs", "legal_factuality_guard.mjs", "markdown_structure_guard.mjs", "json_schema_guard.mjs"):
+                proc = run_guard(guard, [], stdin_payload=payload, cwd=tmp)
+                self.assertEqual(proc.returncode, 0, f"{guard} walked back to stale step: {proc.stderr}")
+                self.assertEqual(json.loads(proc.stdout), {})
+
 
 if __name__ == "__main__":
     unittest.main()
