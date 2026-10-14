@@ -3,17 +3,17 @@
     "SessionStart": [
       {
         "type": "command",
-        "command": "node \"${PLUGIN_ROOT:-.}/scripts/session_start.mjs\"",
+        "command": "node ./scripts/session_start.mjs",
         "timeout": 5
       }
     ],
     "PreToolUse": [
       {
-        "matcher": "^(write_to_file|WriteToFile|write_file|WriteFile|replace_file_content|ReplaceFileContent|apply_patch|write|Write|edit|Edit|multi_edit|multiedit|MultiEdit|search_replace|SearchReplace|str_replace|StrReplace|generate_document|fill_form|Bash|bash|shell|Shell|run_command|RunCommand|terminal|Terminal|execute|Execute|execute_command)$",
+        "matcher": "^(write_to_file|WriteToFile|write_file|WriteFile|replace_file_content|ReplaceFileContent|multi_replace_file_content|MultiReplaceFileContent|apply_patch|write|Write|edit|Edit|multi_edit|multiedit|MultiEdit|search_replace|SearchReplace|str_replace|StrReplace|generate_document|fill_form|Bash|bash|shell|Shell|run_command|RunCommand|terminal|Terminal|execute|Execute|execute_command)$",
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${PLUGIN_ROOT:-.}/scripts/evidence_guard.mjs\" pre-tool-use",
+            "command": "node ./scripts/evidence_guard.mjs pre-tool-use",
             "timeout": 5
           }
         ]
@@ -25,17 +25,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${PLUGIN_ROOT:-.}/scripts/evidence_guard.mjs\" post-tool-use",
+            "command": "node ./scripts/evidence_guard.mjs post-tool-use",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "node \"${PLUGIN_ROOT:-.}/scripts/hallucination_guard.mjs\"",
+            "command": "node ./scripts/hallucination_guard.mjs",
             "timeout": 30
           },
           {
             "type": "command",
-            "command": "node \"${PLUGIN_ROOT:-.}/scripts/legal_factuality_guard.mjs\"",
+            "command": "node ./scripts/legal_factuality_guard.mjs",
             "timeout": 5
           }
         ]

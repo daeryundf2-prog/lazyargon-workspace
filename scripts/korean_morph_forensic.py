@@ -112,7 +112,7 @@ def extract_forensic_morphemes(text: str, min_len: int = 2) -> list[str]:
             results = []
             for t in tokens:
                 clean_form = t.form.rstrip(".,;:-~`!@#$%^&*()[]{}")
-                if clean_form and len(clean_form) >= min_len and not re.match(r"^[0-9]+[.)]?$", t.form):
+                if clean_form and len(clean_form) >= min_len and not re.match(r"^[0-9]+(?:[.:-][0-9]+)*(?:s|ms|hz|khz|mb|gb|kb|db|b|px|fps|kbps|초|분|시간|일|월|년|건|개|명|회|차|원|쪽|페이지|번|호|조|항|[.)])?$", clean_form, re.IGNORECASE):
                     if t.tag in CONTENT_TAGS:
                         results.append(clean_form)
             return results
@@ -139,7 +139,7 @@ def extract_forensic_morphemes(text: str, min_len: int = 2) -> list[str]:
     words = re.findall(r"[가-힣a-zA-Z0-9_]+(?:-[a-zA-Z0-9_]+)*", text)
     fallback_tokens = []
     for w in words:
-        if re.match(r"^[0-9]+[.)]?$", w):
+        if re.match(r"^[0-9]+(?:[.:-][0-9]+)*(?:s|ms|hz|khz|mb|gb|kb|db|b|px|fps|kbps|초|분|시간|일|월|년|건|개|명|회|차|원|쪽|페이지|번|호|조|항|[.)])?$", w, re.IGNORECASE):
             continue
 
         # If w is directly a known domain or procedural term, preserve it

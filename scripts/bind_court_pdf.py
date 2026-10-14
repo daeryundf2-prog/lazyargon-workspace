@@ -28,6 +28,7 @@ MAX_MB_DEFAULT = 50  # ECFS 개별 첨부파일 용량 한계 기준
 
 
 def load_items(path: str) -> list[dict]:
+    base_dir = os.path.dirname(os.path.abspath(path))
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     if isinstance(data, dict):  # 증거설명서 형식과의 호환 (evidence_list 키)
@@ -37,6 +38,10 @@ def load_items(path: str) -> list[dict]:
         file = entry.get("file") or entry.get("file_path") or entry.get("path")
         if not file:
             raise ValueError(f"증거 항목에 file 경로가 없습니다: {entry}")
+        if not os.path.isabs(file) and not os.path.isfile(file):
+            cand = os.path.join(base_dir, file)
+            if os.path.isfile(cand):
+                file = cand
         items.append({
             "file": file,
             "label": str(entry.get("label", "")).strip(),

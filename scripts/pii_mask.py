@@ -33,20 +33,25 @@ import argparse
 import json
 import re
 import sys
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 from pathlib import Path
 
 TEXT_EXTS = {".txt", ".md", ".csv", ".json", ".log", ".tsv", ".xml", ".html"}
 
 PATTERNS: list[tuple[str, re.Pattern, str]] = [
-    # (이름, 패턴, 마스킹 치환)
-    ("주민등록번호", re.compile(r"\b(\d{6})-([1-4]\d{6})\b"), r"\1-*******"),
-    ("여권번호", re.compile(r"\b([MSRmsr]\d{8})\b"), r"********"),
-    ("운전면허번호", re.compile(r"\b(\d{2}-\d{2}-\d{6}-\d{2})\b"), r"**-**-******-**"),
-    ("휴대전화", re.compile(r"\b(01[016789])-?(\d{3,4})-?(\d{4})\b"), r"\1-****-\3"),
-    ("유선전화", re.compile(r"\b(0\d{1,2})-?(\d{3,4})-?(\d{4})\b"), r"\1-****-\3"),
-    ("카드번호", re.compile(r"\b(\d{4})[- ]?(\d{4})[- ]?(\d{4})[- ]?(\d{4})\b"), r"\1-****-****-\4"),
-    ("계좌번호", re.compile(r"\b(\d{3,6})-(\d{2,6})-(\d{4,8})\b"), r"\1-**-******"),
-    ("이메일", re.compile(r"\b([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b"), r"***@\2"),
+    # (이름, 패턴, 마스킹 치환) — 한글 조사/밑줄 인접(01044111120_임승희, 010-1234-5678으로)도 탐지하도록 (?<!\d)...(?!\d) 사용
+    ("주민등록번호", re.compile(r"(?<!\d)(\d{6})-([1-4]\d{6})(?!\d)"), r"\1-*******"),
+    ("여권번호", re.compile(r"(?<![A-Za-z0-9])([MSRmsr]\d{8})(?!\d)"), r"********"),
+    ("운전면허번호", re.compile(r"(?<!\d)(\d{2}-\d{2}-\d{6}-\d{2})(?!\d)"), r"**-**-******-**"),
+    ("휴대전화", re.compile(r"(?<!\d)(01[016789])-?(\d{3,4})-?(\d{4})(?!\d)"), r"\1-****-\3"),
+    ("유선전화", re.compile(r"(?<!\d)(0(?:2|[3-6][1-5]|70|50\d))-?(\d{3,4})-?(\d{4})(?!\d)"), r"\1-****-\3"),
+    ("카드번호", re.compile(r"(?<!\d)(\d{4})[- ]?(\d{4})[- ]?(\d{4})[- ]?(\d{4})(?!\d)"), r"\1-****-****-\4"),
+    ("계좌번호", re.compile(r"(?<!\d)(\d{3,6})-(\d{2,6})-(\d{4,8})(?!\d)"), r"\1-**-******"),
+    ("이메일", re.compile(r"(?<![A-Za-z0-9._%+-])([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]+\.[A-Za-z]{2,})(?![A-Za-z0-9.-])"), r"***@\2"),
 ]
 
 # 계좌번호 패턴은 날짜(YYYY-MM-DD 등)와 겹칠 수 있어 후처리로 제외한다
@@ -55,11 +60,16 @@ DATE_LIKE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$|^\d{2,4}-\d{1,2}-\d{1,2}$")
 
 def detect_in_text(text: str) -> list[dict]:
     findings = []
+    covered_spans: list[tuple[int, int]] = []
     for name, pattern, _repl in PATTERNS:
         for m in pattern.finditer(text):
             if name == "계좌번호" and DATE_LIKE_RE.match(m.group(0)):
                 continue
-            line = text.count("\n", 0, m.start()) + 1
+            s, e = m.start(), m.end()
+            if any(not (e <= cs or s >= ce) for cs, ce in covered_spans):
+                continue
+            covered_spans.append((s, e))
+            line = text.count("\n", 0, s) + 1
             findings.append({"type": name, "line": line, "match": m.group(0)})
     return findings
 

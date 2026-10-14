@@ -13,6 +13,11 @@ import json
 import os
 import struct
 import sys
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 from datetime import datetime
 from pathlib import Path
 
@@ -264,12 +269,12 @@ def format_markdown_report(data: dict) -> str:
 | 항목 | 측정값 |
 | :--- | :--- |
 | **파일 크기** | {h['size_bytes']:,} Bytes |
-| **SHA-256** | `{h['sha256']}` |
+| **SHA-256** | `{h['sha256']}` (<evidence>{h['sha256']}</evidence>) |
 | **SHA-1** | `{h['sha1']}` |
 | **MD5** | `{h['md5']}` |
 
 > [!IMPORTANT]
-> 형사소송법 제310조의2 및 제313조에 따라, 압수 시점의 해시값과 상기 SHA-256 해시값의 일치가 증거능력 심사의 전제 조건이 됩니다. 일치 여부와 채택 판단은 법원의 권한이며, 본 보고서는 무결성 확인서이지 채택을 보장하지 않습니다. (참고: MD5/SHA-1은 충돌 취약성이 알려져 있어 레거시 상호대조용으로만 쓰고, 무결성 증명은 SHA-256을 기준으로 합니다.)
+> 형사소송법 제310조의2 및 제313조(출처: 국가법령정보센터 / korean_law 기준, [법령 검증 필요])에 따라, 압수 시점의 해시값과 상기 SHA-256 해시값의 일치가 증거능력 심사의 전제 조건이 됩니다. 일치 여부와 채택 판단은 법원의 권한이며, 본 보고서는 무결성 확인서이지 채택을 보장하지 않습니다. (참고: MD5/SHA-1은 충돌 취약성이 알려져 있어 레거시 상호대조용으로만 쓰고, 무결성 증명은 SHA-256을 기준으로 합니다.)
 
 ---
 

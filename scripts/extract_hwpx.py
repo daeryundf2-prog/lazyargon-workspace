@@ -23,6 +23,11 @@ import argparse
 import json
 import re
 import sys
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -71,8 +76,8 @@ def extract_text(hwpx_path: Path) -> list[str]:
             if len(raw) > SECTION_CAP:
                 raise RuntimeError(f"섹션 크기 상한 초과: {name} ({len(raw)}B)")
             root = ET.fromstring(raw)
-            for t in root.iter(f"{HWP_NS}t"):
-                if t.text:
+            for t in root.iter():
+                if t.tag.rsplit("}", 1)[-1] == "t" and t.text:
                     text_len += len(t.text.encode("utf-8"))
                     if text_len > TEXT_CAP:
                         raise RuntimeError(f"추출 텍스트 상한 초과 ({TEXT_CAP}B)")

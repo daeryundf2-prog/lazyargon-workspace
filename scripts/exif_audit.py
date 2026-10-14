@@ -27,6 +27,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+from datetime import datetime, timezone
 from pathlib import Path
 
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".webp", ".heic", ".bmp"}
@@ -51,6 +57,11 @@ def _require_pillow():
 
 def audit_image(path: Path, Image) -> dict:
     rec: dict = {"file": str(path)}
+    try:
+        if path.is_file():
+            rec["mtime"] = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).astimezone().isoformat(timespec="seconds")
+    except OSError:
+        pass
     try:
         with Image.open(path) as img:
             rec["format"] = img.format

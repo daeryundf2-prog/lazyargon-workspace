@@ -37,6 +37,11 @@ import argparse
 import json
 import re
 import sys
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -107,15 +112,29 @@ def events_from_exif(path: str) -> list[dict]:
     records = data.get("records", []) if isinstance(data, dict) else data
     out = []
     for r in records:
-        dto = (r.get("tags") or {}).get("DateTimeOriginal")
-        if not dto:
-            continue
-        ts = _norm_exif_dt(dto)
-        if ts is None:
-            continue
-        out.append({"timestamp": ts, "source": "EXIF",
-                    "description": f"촬영(기록값): {Path(r['file']).name}",
-                    "file": r["file"]})
+        tags = r.get("tags") or {}
+        dto = (
+            tags.get("DateTimeOriginal")
+            or tags.get("DateTimeDigitized")
+            or tags.get("DateTime")
+            or r.get("exif_datetime_original")
+            or r.get("exif_datetime_digitized")
+            or r.get("exif_datetime")
+        )
+        if dto:
+            ts = _norm_exif_dt(str(dto)) or _norm_iso(str(dto))
+            if ts:
+                out.append({"timestamp": ts, "source": "EXIF",
+                            "description": f"촬영(기록값): {Path(r['file']).name}",
+                            "file": r["file"]})
+                continue
+        fs_ts = r.get("mtime") or r.get("fs_mtime") or r.get("fs_ctime")
+        if fs_ts:
+            ts = _norm_iso(str(fs_ts))
+            if ts:
+                out.append({"timestamp": ts, "source": "EXIF(파일시스템폴백)",
+                            "description": f"이미지 수정시각(EXIF 부재): {Path(r['file']).name}",
+                            "file": r["file"]})
     return out
 
 

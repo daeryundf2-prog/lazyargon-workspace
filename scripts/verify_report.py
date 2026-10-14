@@ -102,7 +102,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Report hallucination guard — hard grounding verifier")
     parser.add_argument("report", nargs="?", default=None, help="Report draft path (.md/.html)")
     parser.add_argument("--health-check", action="store_true", help="Run Section 5.1 & 7-8 forensic factuality health check suite")
-    parser.add_argument("--evidence", nargs="*", default=[], help="Evidence files (audit json, audit_trail.jsonl, timeline json, etc.) for hash grounding")
+    parser.add_argument("--evidence", nargs="*", action="extend", default=[], help="Evidence files (audit json, audit_trail.jsonl, timeline json, etc.) for hash grounding")
     parser.add_argument("--timeline", help="Timeline events.json for timestamp grounding (optional)")
     parser.add_argument("--claim-ledger", help="Optional path to claim-ledger.md for Section 6 verification")
     parser.add_argument("--law-cache", help="korean_law MCP 응답 캐시 JSON (법령대조 근거파일, 스켈레톤 — 자동대조 미완성)")

@@ -28,7 +28,8 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-DATE_HEADER_REGEX = re.compile(r"^[-=]{2,}\s*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일.*[-=]{2,}$")
+DATE_HEADER_REGEX = re.compile(r"^(?:[-=]{2,}\s*)?(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일(?:\s+[가-힣]+요일)?(?:\s*[-=]{2,})?$")
+IOS_MSG_REGEX = re.compile(r"^(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})\.\s*(오전|오후)\s*(\d{1,2}):(\d{2}),\s*(.+?)\s*:\s*(.*)$")
 MOBILE_MSG_REGEX = re.compile(r"^\[(.+?)\]\s*\[(오전|오후)\s*(\d{1,2}):(\d{2})\]\s*(.*)$")
 PC_MSG_REGEX = re.compile(
     r"^\[(오전|오후)\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\]\s*(.+?)\s*:\s+(.*)$"
@@ -109,6 +110,26 @@ def parse_kakao_text(text):
         if date_match:
             y, m, d = date_match.groups()
             current_date = f"{int(y):04d}-{int(m):02d}-{int(d):02d}"
+            continue
+
+        ios_match = IOS_MSG_REGEX.match(stripped)
+        if ios_match:
+            y, m, d, ampm, hour, minute, user, content = ios_match.groups()
+            current_date = f"{int(y):04d}-{int(m):02d}-{int(d):02d}"
+            h = int(hour)
+            if ampm == "오후" and h != 12:
+                h += 12
+            elif ampm == "오전" and h == 12:
+                h = 0
+            ts = f"{current_date} {h:02d}:{int(minute):02d}:00"
+            records.append({
+                "type": "message",
+                "timestamp": ts,
+                "timestamp_unknown": False,
+                "sender": user.strip(),
+                "message": content,
+                "has_attachment": detect_attachment(content),
+            })
             continue
 
         mob_match = MOBILE_MSG_REGEX.match(stripped)

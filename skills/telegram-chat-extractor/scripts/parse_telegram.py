@@ -200,6 +200,15 @@ def main():
                 filtered.append(m)
             c["messages"] = filtered
             c["total_messages"] = len(filtered)
+            new_parts = {}
+            for fm in filtered:
+                s = fm.get("sender") or "Unknown"
+                new_parts[s] = new_parts.get(s, 0) + 1
+            c["participants"] = new_parts
+            c["date_range"] = {
+                "first": (filtered[0].get("date") or filtered[0].get("timestamp") or "N/A") if filtered else "N/A",
+                "last": (filtered[-1].get("date") or filtered[-1].get("timestamp") or "N/A") if filtered else "N/A",
+            }
     if args.events_out:
         events = convert_to_timeline_events(chats, args.keyword, args.sender)
         os.makedirs(os.path.dirname(os.path.abspath(args.events_out)) or ".", exist_ok=True)

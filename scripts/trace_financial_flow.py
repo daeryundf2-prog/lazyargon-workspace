@@ -30,12 +30,13 @@ import re
 import sys
 from datetime import datetime
 
-DATE_KEYS = ["거래일시", "거래일", "일자", "거래시간", "date", "datetime"]
-DEPOSIT_KEYS = ["입금액", "입금금액", "입금"]
-WITHDRAW_KEYS = ["출금액", "출금금액", "출금"]
-AMOUNT_KEYS = ["금액", "amount"]
-DIRECTION_KEYS = ["구분", "유형", "거래구분", "type"]
-COUNTERPARTY_KEYS = ["상대방", "상대", "받는분", "받는사람", "보내는분", "보낸분", "거래처", "적요", "내용", "비고", "counterparty", "description"]
+DATE_KEYS = ["거래일시", "거래일", "거래일자", "일자", "거래시간", "date", "datetime"]
+TIME_ONLY_KEYS = ["거래시간", "시간", "time"]
+DEPOSIT_KEYS = ["입금액", "입금금액", "입금(원)", "맡기신금액", "맡기신 금액", "입금"]
+WITHDRAW_KEYS = ["출금액", "출금금액", "출금(원)", "찾으신금액", "찾으신 금액", "지급액", "출금"]
+AMOUNT_KEYS = ["거래금액", "금액", "amount"]
+DIRECTION_KEYS = ["거래구분", "입출금구분", "구분", "유형", "type"]
+COUNTERPARTY_KEYS = ["상대방", "상대", "받는분", "받는사람", "보내는분", "보낸분", "의뢰인/수취인", "기재내용", "통장표기", "거래처", "적요", "거래내용", "내용", "비고", "counterparty", "description"]
 DEPOSIT_WORDS = {"입금", "+", "in", "credit"}
 WITHDRAW_WORDS = {"출금", "-", "out", "debit"}
 
@@ -55,8 +56,10 @@ def _pick(columns: list[str], keys: list[str]) -> str | None:
     for key in keys:
         if key in lowered:
             return lowered[key]
-    for key in keys:  # 부분 일치 (예: "거래일시(등록일)")
+    for key in keys:  # 부분 일치 (예: "거래일시(등록일)"), 단 계좌/은행/지점/번호 열은 금액/구분에서 제외
         for low, orig in lowered.items():
+            if any(bad in low for bad in ("계좌", "은행", "지점", "번호", "잔액")):
+                continue
             if key in low:
                 return orig
     return None
@@ -120,6 +123,9 @@ def read_rows(path: str) -> tuple[list[str], list[dict]]:
 def normalize(columns: list[str], rows: list[dict]) -> list[dict]:
     """행을 {date, date_dt, counterparty, amount(+입/−출)} 표준형으로 변환."""
     d_col = _pick(columns, DATE_KEYS)
+    t_col = _pick(columns, TIME_ONLY_KEYS)
+    if t_col == d_col:
+        t_col = None
     in_col = _pick(columns, DEPOSIT_KEYS)
     out_col = _pick(columns, WITHDRAW_KEYS)
     amt_col = _pick(columns, AMOUNT_KEYS)
@@ -287,7 +293,8 @@ def render_mermaid(ranking: list[tuple[str, dict]], top: int, alert_cps: set[str
         # 해시는 프로세스별 랜덤화(hash())를 쓰지 않는다 — 증거 도구의 산출물은
         # 같은 입력에 대해 실행마다 동일해야 재현·대조가 가능하다.
         node = "CP" + hashlib.sha1(cp.encode("utf-8")).hexdigest()[:8]
-        label = f"{cp} (入{agg['입금']:,.0f} / 出{agg['출금']:,.0f})"
+        safe_cp = str(cp).replace('"', "'").replace("\n", " ").strip()
+        label = f"{safe_cp} (入{agg['입금']:,.0f} / 出{agg['출금']:,.0f})"
         lines.append(f'  {node}["{label}"]')
         if cp in alert_cps:
             alert_nodes.append(node)

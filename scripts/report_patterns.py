@@ -80,7 +80,7 @@ DOT_DATE_RE = re.compile(r"\b(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})\.(?!\d)")
 LAW_CITATION_RE = re.compile(r"제\s*\d+\s*조(?:\s*의\s*\d+)?(?:\s*제?\s*\d+\s*항)?")
 LAW_SOURCE_MARKER_RE = re.compile(r"korean_law|LawSearch|법제처|국가법령정보센터")
 
-EVIDENCE_TAG_RE = re.compile(r"<evidence(?:\s+[^>]*)?>(.*?)</evidence>", re.DOTALL | re.IGNORECASE)
+EVIDENCE_TAG_RE = re.compile(r"(?<!`)<evidence(?:\s+[^>]*)?>(?!`)((?:(?!(?<!`)<evidence\b).)*?)(?<!`)</evidence>(?!`)", re.DOTALL | re.IGNORECASE)
 
 KOREAN_PARTICLE_SUFFIX = (
     r"(?:장관|차관|처장|청장|국장|위원장|부장|령|고시|지침|규정)?"

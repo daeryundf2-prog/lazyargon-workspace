@@ -189,7 +189,8 @@ def load_evidence_hashes(evidence_paths: list[str]) -> set[str]:
 def _normalize_file_token(tok: str) -> str:
     """파일 토큰 정규화: 경로는 basename으로, 비교는 소문자(Windows/macOS
     파일시스템은 대소문자 무관)로 통일한다."""
-    return tok.strip().replace("\\", "/").rstrip("/").split("/")[-1].casefold()
+    cleaned = tok.strip().strip("`'\"()[]<>").replace("\\", "/").rstrip("/")
+    return cleaned.split("/")[-1].strip("`'\"()[]<>").casefold()
 
 
 def load_evidence_hash_file_pairs(evidence_paths: list[str]) -> dict[str, list[str]]:
@@ -333,10 +334,18 @@ def check_hash_file_binding(report_text: str, evidence_pairs: dict[str, list[str
             in_tag = _in_evidence_tag(abs_pos)
             # 해시와 파일명이 인접(같은 줄 또는 ±2줄)한 파일명 수집
             window_files: set[str] = set()
-            for wli in range(max(0, li - 2), min(len(lines), li + 3)):
+            window_lines_range = range(max(0, li - 2), min(len(lines), li + 3))
+            window_text_norm = "\n".join(lines[wli] for wli in window_lines_range).casefold()
+            for wli in window_lines_range:
                 for fm in file_token_re.finditer(lines[wli]):
-                    window_files.add(_normalize_file_token(fm.group(1)))
+                    nf = _normalize_file_token(fm.group(1))
+                    if nf.startswith(("com.android.", "com.samsung.", "com.apple.", "org.videolan.")):
+                        continue
+                    window_files.add(nf)
             owners_norm = [_normalize_file_token(o) for o in owners]
+            for on in owners_norm:
+                if on and on in window_text_norm:
+                    window_files.add(on)
             if not window_files:
                 if h in tagged_hashes:
                     continue  # 태그 귀속 해시는 파일명 동행 불필요
@@ -350,7 +359,10 @@ def check_hash_file_binding(report_text: str, evidence_pairs: dict[str, list[str
                 continue
             # 표 행 엄격: '|' 포함 행에서는 같은 행의 파일명을 우선 대조한다.
             if "|" in line:
-                same_row = {_normalize_file_token(fm.group(1)) for fm in file_token_re.finditer(line)}
+                same_row = {_normalize_file_token(fm.group(1)) for fm in file_token_re.finditer(line) if not _normalize_file_token(fm.group(1)).startswith(("com.android.", "com.samsung.", "com.apple."))}
+                for on in owners_norm:
+                    if on and on in line.casefold():
+                        same_row.add(on)
                 if same_row and not any(o in same_row for o in owners_norm):
                     key = (h, li)
                     if key not in seen:

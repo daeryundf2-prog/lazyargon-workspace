@@ -127,6 +127,58 @@ def parse_hwpx(file_path: str) -> dict:
     return result
 
 
+
+def _extract_hwp5_para_text(decompressed: bytes) -> str:
+    """HWP 5.0 BodyText Section 스트림에서 HWPTAG_PARA_TEXT(tag 67) 레코드만 정밀 추출한다."""
+    import struct
+    pos = 0
+    n = len(decompressed)
+    paras: list[str] = []
+    # HWP 5.0 확장/인라인 제어문자(총 8 WCHAR = 16바이트 차지)
+    ext_ctrl = {1, 2, 3, 4, 5, 6, 7, 8, 11, 12, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23}
+    while pos + 4 <= n:
+        header = struct.unpack_from("<I", decompressed, pos)[0]
+        pos += 4
+        tag_id = header & 0x3FF
+        size = (header >> 20) & 0xFFF
+        if size == 0xFFF:
+            if pos + 4 > n:
+                break
+            size = struct.unpack_from("<I", decompressed, pos)[0]
+            pos += 4
+        if size == 0 or pos + size > n:
+            if tag_id == 0 and size == 0:
+                break
+            pos += max(size, 0)
+            continue
+        if tag_id == 67:  # HWPTAG_PARA_TEXT
+            payload = decompressed[pos:pos + size]
+            chars: list[str] = []
+            idx = 0
+            plen = len(payload)
+            while idx + 2 <= plen:
+                code = struct.unpack_from("<H", payload, idx)[0]
+                if code in ext_ctrl:
+                    idx += 16
+                    continue
+                idx += 2
+                if code in (10, 13):
+                    chars.append("\n")
+                elif code == 9:
+                    chars.append("\t")
+                elif code < 32:
+                    continue
+                else:
+                    ch = chr(code)
+                    if ch.isprintable():
+                        chars.append(ch)
+            para = "".join(chars).strip()
+            if para:
+                paras.append(para)
+        pos += size
+    return "\n".join(paras)
+
+
 def parse_hwp_legacy(file_path: str) -> dict:
     """구형 HWP (v5.0) 파서 (hwp-hwpx-parser 우선, olefile raw 스트림 fallback).
 
@@ -166,15 +218,23 @@ def parse_hwp_legacy(file_path: str) -> dict:
         import zlib
         ole = olefile.OleFileIO(file_path)
         streams = ole.listdir()
-        body_streams = [s for s in streams if s[0] == "BodyText"]
+        body_streams = sorted(
+            [s for s in streams if s[0] == "BodyText"],
+            key=lambda s: _natural_sort_key("/".join(s)),
+        )
         text_chunks = []
         for b in body_streams:
             stream_data = ole.openstream(b).read()
             try:
                 decompressed = zlib.decompress(stream_data, -15)
-                text = decompressed.decode('utf-16-le', errors='ignore')
-                clean = "".join([c for c in text if c.isprintable() or c in "\n\r\t"])
-                text_chunks.append(clean)
+                structured = _extract_hwp5_para_text(decompressed)
+                if structured:
+                    text_chunks.append(structured)
+                else:
+                    text = decompressed.decode('utf-16-le', errors='ignore')
+                    clean = "".join([c for c in text if c.isprintable() or c in "\n\r\t"])
+                    if clean.strip():
+                        text_chunks.append(clean)
             except Exception:
                 pass
         ole.close()
@@ -431,6 +491,7 @@ def main():
     parser.add_argument("input_file", help="입력 파일 (.hwp, .hwpx, .pdf, .docx, .xlsx, .pptx, .csv 등)")
     parser.add_argument("--output", "-o", help="결과 JSON 저장 경로 (미지정시 stdout 출력)")
     parser.add_argument("--markdown", "-m", action="store_true", help="결과를 마크다운 형식으로 출력")
+    parser.add_argument("--json", action="store_true", help="결과를 JSON 형식으로 출력 (기본값)")
     parser.add_argument("--strict", action="store_true",
                         help="HWP OLE 휴리스틱 추출(quality=rough)을 오류(exit 2)로 거부 (기본은 경고 유지)")
     parser.add_argument("--engine", choices=["auto", "mineru"], default="auto",

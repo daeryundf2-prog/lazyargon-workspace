@@ -29,6 +29,11 @@ import hashlib
 import json
 import sqlite3
 import sys
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 import urllib.parse
 from pathlib import Path
 
@@ -55,7 +60,7 @@ def is_sqlite(path: Path) -> bool:
 def connect_ro(path: Path) -> sqlite3.Connection:
     """immutable 읽기 전용 연결 — 원본·-wal·-shm을 절대 건드리지 않는다.
     파일명의 ?·#·공백 등이 URI 파싱을 깨지 못하게 인코딩한다."""
-    uri = "file:" + urllib.parse.quote(str(path.resolve())) + "?mode=ro&immutable=1"
+    uri = path.resolve().as_uri() + "?mode=ro&immutable=1"
     return sqlite3.connect(uri, uri=True)
 
 
@@ -84,23 +89,24 @@ def survey_db(path: Path, sample: tuple[str, int] | None = None) -> dict:
             "WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' "
             "ORDER BY name").fetchall()
         for name, ttype in rows:
+            safe_name = name.replace('"', '""')
             entry: dict = {"name": name, "type": ttype}
             try:
                 entry["row_count"] = cur.execute(
-                    f'SELECT COUNT(*) FROM "{name}"').fetchone()[0]
+                    f'SELECT COUNT(*) FROM "{safe_name}"').fetchone()[0]
             except sqlite3.Error as e:
                 entry["row_count"] = None
                 entry["count_error"] = str(e)
             try:
                 entry["columns"] = [r[1] for r in cur.execute(
-                    f'PRAGMA table_info("{name}")').fetchall()]
+                    f'PRAGMA table_info("{safe_name}")').fetchall()]
             except sqlite3.Error:
                 entry["columns"] = []
             if sample and sample[0] == name:
                 try:
                     entry["sample_rows"] = [
                         list(r) for r in cur.execute(
-                            f'SELECT * FROM "{name}" LIMIT ?', (sample[1],)).fetchall()]
+                            f'SELECT * FROM "{safe_name}" LIMIT ?', (sample[1],)).fetchall()]
                 except sqlite3.Error as e:
                     entry["sample_error"] = str(e)
             tables.append(entry)

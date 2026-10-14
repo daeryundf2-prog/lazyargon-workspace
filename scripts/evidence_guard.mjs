@@ -328,7 +328,7 @@ function pathTokens(texts) {
 // 전부 차단으로 간다 — best-effort 가드의 실패폐쇄 방향.
 // ---------------------------------------------------------------------------
 const READ_ONLY_VERBS = /^(sha256sum|md5sum|sha1sum|shasum|sha256deep|cat|ls|dir|file|stat|head|tail|wc|strings|exiftool|fls|ils|icat|img_stat|fsstat|jpeg_extract|python3?|py|node)\b/i;
-const WRITE_SIGNS_RE = /(>|>>|\btee\b|\bdd\b|\bcp\b|\bmv\b|\brm\b|\bshred\b|\btruncate\b|\bchmod\b|\bchown\b|\bchattr\b|\bmkfs\b|\bsponge\b|\binstall\b|\btouch\b|\bmktemp\b|\bsed\b[^\n]*\s-i\b)/i;
+const WRITE_SIGNS_RE = /(>|>>|\btee\b|\bdd\b|\bcp\b|\bmv\b|\brm\b|\bshred\b|\btruncate\b|\bchmod\b|\bchown\b|\bchattr\b|\bmkfs\b|\bsponge\b|\binstall\b|\btouch\b|\bmktemp\b|\bsed\b[^\n]*\s-i\b|\b(?:Copy-Item|Move-Item|Remove-Item|New-Item|Rename-Item|Set-Content|Add-Content|Out-File|Clear-Content|sc|ac|ni|ri|mi|cpi|rni)\b)/i;
 
 function isReadOnlyInspection(text) {
 	const t = String(text).trim();
