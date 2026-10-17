@@ -290,7 +290,7 @@ function extractTargetFromTranscript(payloadOrPath) {
 
 export function extractTarget(sourcesOrPayload) {
 	const env = process.env.ANTIGRAVITY_TARGET_FILE || process.env.TARGET_FILE || '';
-	if (env && env.endsWith('.json')) return env;
+	if (env) return env;
 	const sources = Array.isArray(sourcesOrPayload)
 		? sourcesOrPayload
 		: sourcesOrPayload && typeof sourcesOrPayload === 'object'
@@ -302,7 +302,7 @@ export function extractTarget(sourcesOrPayload) {
 		extractTargetFromNode(s.parsed, found);
 		for (const { value, isCommand } of found) {
 			const u = unquoteTranscriptVal(value);
-			if (!isCommand && u.endsWith('.json')) return u;
+			if (!isCommand && u) return u;
 			if (isCommand) {
 				const red = u.match(REDIRECT_RE);
 				if (red) return red[1];
@@ -312,7 +312,7 @@ export function extractTarget(sourcesOrPayload) {
 		}
 		if (s.parsed && typeof s.parsed === 'object' && (s.parsed.transcriptPath || s.parsed.transcript_path || s.parsed.artifactDirectoryPath || s.parsed.artifact_directory_path)) {
 			const fromTranscript = extractTargetFromTranscript(s.parsed);
-			if (fromTranscript && fromTranscript.endsWith('.json')) return fromTranscript;
+			if (fromTranscript) return fromTranscript;
 		}
 	}
 	for (const s of sources) {

@@ -505,6 +505,14 @@ function runVerify(args) {
 async function main() {
 	const sources = await collectSources();
 	const rawTexts = sources.map((s) => s.text);
+	let targetFile = extractTarget(sources);
+
+	// Fast-path: if targetFile is already resolved and is not a report extension (.md/.html/.txt), exit immediately
+	if (targetFile && !/\.(md|html|txt)$/i.test(targetFile)) {
+		process.stdout.write('{}\n');
+		process.exit(0);
+	}
+
 	for (const s of sources) {
 		if (
 			s.parsed &&
@@ -513,15 +521,15 @@ async function main() {
 		) {
 			const fromTranscript = extractFromTranscript(s.parsed);
 			if (fromTranscript) {
+				if (!targetFile && fromTranscript.targetFile) targetFile = fromTranscript.targetFile;
 				if (fromTranscript.targetFile) rawTexts.push(fromTranscript.targetFile);
 				if (fromTranscript.codeContent) rawTexts.push(fromTranscript.codeContent);
 				if (fromTranscript.commandLine) rawTexts.push(fromTranscript.commandLine);
 			}
 		}
 	}
-	const targetFile = extractTarget(sources);
 
-	if (!targetFile || !fs.existsSync(targetFile)) {
+	if (!targetFile || !/\.(md|html|txt)$/i.test(targetFile) || !fs.existsSync(targetFile)) {
 		process.stdout.write('{}\n');
 		process.exit(0); // 가드 대상 없음 — 오탐 방지
 	}

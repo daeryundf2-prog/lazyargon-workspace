@@ -11,7 +11,13 @@ ROOT="$(dirname "$HERE")"
 PARENT="$(dirname "$ROOT")"
 
 GUARDS="markdown_structure_guard.mjs json_schema_guard.mjs"
+CHECK_ONLY=0
+if [ "${1:-}" = "--check" ]; then
+  CHECK_ONLY=1
+  shift
+fi
 
+DRIFT=0
 for repo in ${*:-lazyargon}; do
   target="$PARENT/$repo/scripts"
   if [ ! -d "$target" ]; then
@@ -25,6 +31,9 @@ for repo in ${*:-lazyargon}; do
     fi
     if cmp -s "$ROOT/scripts/$guard" "$target/$guard"; then
       echo "[ok] $repo/scripts/$guard 이미 동일"
+    elif [ "$CHECK_ONLY" -eq 1 ]; then
+      echo "[drift] $repo/scripts/$guard 상이"
+      DRIFT=1
     else
       cp "$ROOT/scripts/$guard" "$target/$guard"
       echo "[sync] $repo/scripts/$guard 갱신"
@@ -32,4 +41,7 @@ for repo in ${*:-lazyargon}; do
   done
 done
 
+if [ "$CHECK_ONLY" -eq 1 ]; then
+  exit "$DRIFT"
+fi
 echo "완료. 각 레포에서 node --check 와 테스트를 실행해 확인할 것."
