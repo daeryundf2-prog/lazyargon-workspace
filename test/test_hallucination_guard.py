@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import subprocess
 import sys
@@ -40,6 +41,60 @@ class HallucinationGuardTests(unittest.TestCase):
             proc = subprocess.run([sys.executable, str(ROOT / "scripts" / "verify_report.py"), str(report), "--evidence", str(evidence)], capture_output=True, text=True, encoding="utf-8", cwd=str(ROOT))
             self.assertEqual(proc.returncode, 0)
 
+    def test_verify_report_warns_on_mostly_unverified(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "empty.md"
+            report.write_text(
+                "# 감정서\n\n- 파일 1 해시: 미확인\n- 파일 2 해시: 미확인\n- 파일 3 수정시각: 미측정\n- 파일 4 수정시각: 미확인\n- 파일 5 크기: 1024바이트\n",
+                encoding="utf-8",
+            )
+            proc = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "verify_report.py"), str(report), "--json"],
+                capture_output=True, text=True, encoding="utf-8", cwd=str(ROOT),
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            data = json.loads(proc.stdout)
+            self.assertEqual(data["verdict"], "WARN")
+            self.assertEqual(data["unverified"]["count"], 4)
+            self.assertEqual(data["unverified"]["claim_lines"], 5)
+            self.assertTrue(any("결측 비율" in w for w in data["warnings"]))
+            strict = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "verify_report.py"), str(report), "--strict"],
+                capture_output=True, text=True, encoding="utf-8", cwd=str(ROOT),
+            )
+            self.assertEqual(strict.returncode, 1)
+
+    def test_verify_report_accepts_unverified_with_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "reasoned.md"
+            report.write_text(
+                "# 감정서\n\n- 파일 1 해시: 미확인(증거 부재 — audit.json 없음)\n- 파일 2 해시: 미확인(모델 유보: 안전 필터)\n- 파일 3 수정시각: 미측정(도구 미설치)\n- 파일 4 수정시각: 미확인(증거 부재)\n- 파일 5 크기: 1024바이트\n",
+                encoding="utf-8",
+            )
+            proc = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "verify_report.py"), str(report), "--json"],
+                capture_output=True, text=True, encoding="utf-8", cwd=str(ROOT),
+            )
+            data = json.loads(proc.stdout)
+            self.assertEqual(data["verdict"], "PASS", data)
+            self.assertEqual(data["unverified"]["with_reason"], 4)
+            self.assertEqual(data["unverified"]["count"], 0)
+
+    def test_guard_timeout_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "검토_보고서.md"
+            report.write_text("# 보고서\n\n" + "- 항목: 정상\n" * 200, encoding="utf-8")
+            env = dict(os.environ)
+            env["TOOL_INPUT"] = json.dumps({"tool_input": {"file_path": str(report)}})
+            env["LAZYFORENSIC_VERIFY_TIMEOUT_MS"] = "1"
+            proc = subprocess.run(
+                ["node", str(ROOT / "scripts" / "hallucination_guard.mjs")],
+                capture_output=True, text=True, encoding="utf-8", cwd=tmp, env=env,
+            )
+            self.assertEqual(proc.returncode, 1, proc.stderr)
+            self.assertIn("검증 미완료", proc.stderr)
+            self.assertEqual(json.loads(proc.stdout.strip())["decision"], "block")
+
     def test_no_skill_contains_forbidden_claim(self):
         for path in (ROOT / "skills").rglob("SKILL.md"):
             text = path.read_text(encoding="utf-8")
@@ -57,6 +112,18 @@ class HallucinationGuardTests(unittest.TestCase):
         self.assertIn("미확인", gemini)
         self.assertIn("verify_report.py", gemini)
         self.assertIn("유출 확정", gemini)
+
+    def test_gemini_has_argon_field_rules(self):
+        # 2026-10 Argon 실사용 보고에서 온 규칙이 GEMINI.md 와 rules 사본 양쪽에 있어야 한다
+        for path in (ROOT / "GEMINI.md", ROOT / "rules" / "GEMINI.md"):
+            gemini = path.read_text(encoding="utf-8")
+            self.assertIn("미확인(모델 유보", gemini, path)
+            self.assertIn("민감 증거 원문은 스크립트가 다룬다", gemini, path)
+            self.assertIn("비전 판독은 텍스트 증거가 아니다", gemini, path)
+            self.assertIn("100줄 이하 청크", gemini, path)
+        media = (ROOT / "skills" / "media-analysis" / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("--max-frames 20", media)
+        self.assertIn("모델 판독(미검증)", media)
 
     def test_forensic_report_skill_has_verify(self):
         skill = (ROOT / "skills" / "forensic-report" / "SKILL.md").read_text(encoding="utf-8")

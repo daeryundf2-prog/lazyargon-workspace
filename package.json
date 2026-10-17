@@ -1,6 +1,6 @@
 {
   "name": "lazyargon-workspace",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Aggregated Antigravity plugin for Korean document processing (HWP/HWPX), Legal-Tech evidence stamping, Humanize KR AI writing refinement, and external MCP tools.",
   "author": "daeryundf2-prog",
   "engines": {

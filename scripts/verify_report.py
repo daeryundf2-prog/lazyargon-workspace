@@ -98,6 +98,43 @@ except ImportError:  # scripts/ 가 sys.path 에 직접 있는 경우
     )
 
 
+UNVERIFIED_TOKEN_RE = re.compile(r"미확인|미측정|미검증|모델\s*유보|not_checked|unavailable", re.IGNORECASE)
+UNVERIFIED_REASON_RE = re.compile(r"미확인\s*\(|미측정\s*\(|사유|증거\s*부재|모델\s*유보|도구\s*미설치")
+CLAIM_LINE_RE = re.compile(r"\d")
+UNVERIFIED_MIN_CLAIM_LINES = 4
+UNVERIFIED_WARN_RATIO = 0.5
+
+
+def measure_unverified(text):
+    """수치·해시·시각이 있는 줄과 미확인 표기 줄을 세어 결측 비율을 낸다.
+
+    사유가 붙은 결측(`미확인(모델 유보: …)`, `미측정 — 증거 부재`)은 정직한 표기로 보고 분자에서 뺀다.
+    표 구분선·헤더 같은 비주장 줄은 분모에서 제외한다.
+    """
+    claim_lines = 0
+    unverified = 0
+    unverified_with_reason = 0
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or re.fullmatch(r"\|?[\s:|-]+\|?", line) or line.startswith("#"):
+            continue
+        is_unverified = bool(UNVERIFIED_TOKEN_RE.search(line))
+        if is_unverified or CLAIM_LINE_RE.search(line):
+            claim_lines += 1
+        if is_unverified:
+            if UNVERIFIED_REASON_RE.search(line):
+                unverified_with_reason += 1
+            else:
+                unverified += 1
+    ratio = (unverified / claim_lines) if claim_lines else 0.0
+    return {
+        "count": unverified,
+        "with_reason": unverified_with_reason,
+        "claim_lines": claim_lines,
+        "ratio": round(ratio, 3),
+    }
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Report hallucination guard — hard grounding verifier")
     parser.add_argument("report", nargs="?", default=None, help="Report draft path (.md/.html)")
@@ -478,12 +515,23 @@ def main(argv=None):
         else:
             warnings.append("verify_claim_ledger 모듈을 찾을 수 없어 원장 검증을 건너뛰었습니다.")
 
+    # 5-8) 결측(미확인) 비율 — "근거 없는 항목을 전부 비워서 통과"하는 초안을 잡는다.
+    #    Argon은 추측 대신 유보하는 빈도가 높아 이 경로가 흔하다. 결측 자체는 정직한 표기이므로
+    #    FAIL이 아니라 WARN(--strict 에서 FAIL)이며, 항목별 사유(증거 부재/모델 유보/도구 미설치)를 요구한다.
+    unverified = measure_unverified(text)
+    if unverified["claim_lines"] >= UNVERIFIED_MIN_CLAIM_LINES and unverified["ratio"] > UNVERIFIED_WARN_RATIO:
+        warnings.append(
+            f"결측 비율 {unverified['ratio']*100:.0f}% ({unverified['count']}/{unverified['claim_lines']} 항목이 미확인/미측정) — "
+            f"항목별 미확인 사유(증거 부재/모델 유보/도구 미설치)를 적을 것. 사유 없는 결측은 빈 보고서다"
+        )
+
     result = {
         "report": str(report_path),
         "encoding": encoding_used,
         "forbidden_hits": sorted(set(forbidden)),
         "report_hashes": sorted(list(report_hashes)),
         "law_citations": citations[:10],
+        "unverified": unverified,
         "errors": errors,
         "warnings": warnings,
         "verdict": "FAIL" if errors else ("WARN" if warnings else "PASS"),

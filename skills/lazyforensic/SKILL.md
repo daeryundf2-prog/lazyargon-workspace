@@ -77,7 +77,9 @@ venv 인지 리졸버: 위 표의 `python` 자리에 `scripts/py`를 쓰면 `~/.
 
 계약 서식·법령 조회는 `../legal-forensic-consult/SKILL.md`. 세션의 `korean_law`가 `ready`일 때만 MCP를 쓴다. 조문을 만들지 않는다.
 
-병렬 작업은 `../../docs/antigravity-tools.md`의 `invoke_subagent`만 쓴다. `Model: "inherit"` 초안, 검증/대조 레인은 `Model: "inherit"`(세션 모델과 무관, Claude 할당량 절약).
+병렬 작업은 `../../docs/antigravity-tools.md`의 `invoke_subagent`만 쓴다. 파싱·추출·표 정리·초안 골격은 `Model: "flash"`, 보고서 본문·법률 초안·검증/대조 판정은 `Model: "inherit"`. Claude 5.5 세션이면 `inherit`는 최종 판정 1레인만(Claude 할당량 절약). 팬아웃 전 `예산:` 한 줄(기본 4레인/2웨이브).
+
+민감 증거(성적·폭력·혐오 표현)는 모델이 원문을 다시 쓰지 않는다. 결정적 스크립트 출력과 `파일:행`만 보고서에 옮기고, 안전 필터 차단은 `미확인(모델 유보: 안전 필터)`로 적는다 (`../../GEMINI.md` 실패 폐쇄 절).
 
 ## Evidence Integrity & Defensibility Mandates (사법 증거 무결성 원칙)
 

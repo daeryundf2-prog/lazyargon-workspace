@@ -256,6 +256,21 @@ class MarkdownStructureGuardTests(unittest.TestCase):
 
 
 class StopClaimGuardTests(unittest.TestCase):
+    def test_leaked_reasoning_block_is_blocked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Path(tmp) / "leak.md"
+            f.write_text("# 보고서\n<thought>\n먼저 해시를 비교해야겠다\n</thought>\n본문\n", encoding="utf-8")
+            proc = run_guard("markdown_structure_guard.mjs", ["--check", str(f)], cwd=tmp)
+            self.assertEqual(proc.returncode, 1, proc.stderr)
+            self.assertIn("leaked_reasoning_block", proc.stderr)
+
+    def test_reasoning_tag_inside_code_span_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Path(tmp) / "doc.md"
+            f.write_text("# 가이드\n\n가드는 `<thought>` 태그를 차단한다.\n\n```\n<thinking>\n예시\n</thinking>\n```\n", encoding="utf-8")
+            proc = run_guard("markdown_structure_guard.mjs", ["--check", str(f)], cwd=tmp)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+
     def test_unsupported_grand_claim_is_blocked(self):
         payload = json.dumps({
             "hook_event_name": "Stop",

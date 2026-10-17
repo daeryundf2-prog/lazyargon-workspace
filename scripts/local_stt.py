@@ -45,13 +45,15 @@ import re
 import shutil
 import subprocess
 import sys
+import contextlib
+from pathlib import Path
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
-import contextlib
 
 _WHISPER_MODEL_CACHE: dict[str, object] = {}
 
@@ -68,15 +70,18 @@ def _win_symlink_fallback():
             return orig_symlink(src, dst, target_is_directory=target_is_directory, *args, **kwargs)
         except OSError as exc:
             if getattr(exc, "winerror", None) == 1314:
-                src_p = Path(src)
-                dst_p = Path(dst)
-                if not src_p.is_absolute():
-                    src_p = (dst_p.parent / src_p).resolve()
-                if src_p.is_dir():
-                    shutil.copytree(src_p, dst_p, dirs_exist_ok=True)
+                src_str = str(src)
+                dst_str = str(dst)
+                if not os.path.isabs(src_str):
+                    dst_dir = os.path.dirname(dst_str)
+                    src_str = os.path.normpath(os.path.join(dst_dir, src_str))
+                if os.path.isdir(src_str):
+                    shutil.copytree(src_str, dst_str, dirs_exist_ok=True)
                 else:
-                    dst_p.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(src_p, dst_p)
+                    dst_dir = os.path.dirname(dst_str)
+                    if dst_dir:
+                        os.makedirs(dst_dir, exist_ok=True)
+                    shutil.copy2(src_str, dst_str)
                 return None
             raise
 
@@ -86,11 +91,6 @@ def _win_symlink_fallback():
     finally:
         os.symlink = orig_symlink
 
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-if hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-from pathlib import Path
 
 AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".opus", ".aac", ".mp4", ".mkv", ".mov", ".webm"}
 

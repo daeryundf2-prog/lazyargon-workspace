@@ -45,3 +45,5 @@
 5. **의존성 최소.** 새 Python 의존성은 requirements.txt에 주석과 함께 기록하고,
    표준 라이브러리로 해결 가능하면 의존성을 추가하지 않는다.
 6. **리걸테크 사실성 & 형태소 그라운딩.** 법률 문서 작성 및 판결문 분석 시 `verify_legal_factuality.py` 및 `korean_morph_grounding.py`를 통해 실존 법령 상한선과 판례 형식, Kiwi 형태소 일치도를 반드시 검증한다. 고위험 작성 시 `--high-fidelity` 게이트를 적용한다.
+7. **모델 유보는 결측으로 적는다.** 모델이 거부·유보한 항목은 `미확인(모델 유보: <사유>)`로 두고 다른 말로 다시 묻지 않는다. `verify_report.py`의 `unverified.ratio`가 결측 비율을 재며, 사유 없는 결측이 절반을 넘으면 WARN(`--strict` FAIL)이다.
+8. **쓰기는 100줄 청크, 컴팩션 뒤에는 재열람.** Gemini 4 Argon 세션에서 큰 단일 쓰기는 호스트 60초 컷오프로 유실되고, 컴팩션 뒤 기억에 의존한 편집은 없는 식별자를 만든다. 쓴 구간은 다시 읽어 확인한다 (`lazyargon/docs/argon-field-notes.md`).

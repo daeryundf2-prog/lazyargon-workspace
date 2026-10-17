@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
  * markdown_structure_guard.mjs — PostToolUse 마크다운 구조 무결성 가드
- * GUARD_PACK_VERSION: 1.0.0 (캐노니컬: lazyforensic/scripts — 수정 시 3레포 동기화)
+ * GUARD_PACK_VERSION: 1.1.0 (캐노니컬: lazyargon-workspace/scripts — 수정 시 sync_guard_pack.sh 로 동기화)
  *
  * 임무: LLM 생성 파이프라인이 마크다운 작성 중 인라인 코드/링크 텍스트/강조를
  * 통째로 삭제하는 "스트리핑" 사고(빈 링크 [](...), 빈 불릿 "-  : ", 고아 $수식,
- * 미닫힘 코드펜스, 표 열 불일치)를 쓰기 직후 탐지해 재작성을 강제한다.
+ * 미닫힘 코드펜스, 표 열 불일치)와 사고(thinking) 블록 누출을 쓰기 직후 탐지해 재작성을 강제한다.
  *
  * 정직한 동작 규약:
  * - PostToolUse 사후 게이트다. 파일이 이미 쓰인 뒤 검사하며, 파일을 지우지 않는다.
@@ -19,7 +19,7 @@ import fs from 'fs';
 import path from 'path';
 import { stdin } from 'node:process';
 
-const GUARD_PACK_VERSION = '1.0.0';
+const GUARD_PACK_VERSION = '1.1.0';
 const READ_CAP_BYTES = 2 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
@@ -480,6 +480,23 @@ const FINDING_CHECKS = [
 			const hits = [];
 			masked.forEach((line, i) => {
 				if (/【F:[^】]+†L\d+[^】]*】/.test(line)) hits.push(i + 1);
+			});
+			return hits;
+		},
+	},
+	{
+		id: 'leaked_reasoning_block',
+		message: '모델 사고(thinking) 블록이 본문에 누출됐다 — <thought>/<thinking>/<think> 태그 또는 "Thinking:" 서두가 산출물에 남아 있다',
+		run: (lines, masked) => {
+			// Gemini 4 Argon은 reasoning 블록 경계를 놓치는 사례가 보고됐다(2026-10). 산출물에 남은
+			// 사고 텍스트는 독자에게 노출되면 안 되므로 고신뢰 시그니처만 차단한다:
+			// (1) 줄 선두의 여는/닫는 사고 태그, (2) 줄 전체가 "Thinking:"/"Thought:"/"Reasoning:"/"사고 과정:" 인 라벨.
+			// 코드스팬·코드펜스 안은 masked 로 제외되므로 태그를 설명하는 문서는 오탐이 아니다.
+			const TAG_RE = /^\s*<\/?(thought|thinking|think|reasoning|scratchpad)\s*>\s*$/i;
+			const LABEL_RE = /^\s*(\*\*|__)?(Thinking|Thought|Reasoning|사고\s*과정|생각)\s*(Process)?\s*:\s*(\*\*|__)?\s*$/i;
+			const hits = [];
+			masked.forEach((line, i) => {
+				if (TAG_RE.test(line) || LABEL_RE.test(line)) hits.push(i + 1);
 			});
 			return hits;
 		},

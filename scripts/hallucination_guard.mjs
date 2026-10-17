@@ -473,14 +473,22 @@ const PYTHON_CANDIDATES = process.platform === 'win32'
 		{ cmd: 'py', pre: ['-3'] },
 	];
 
+// 호스트 훅 타임아웃(hooks.json 30초)보다 짧게 잡아, 검증이 길어져도 호스트가 프로세스를 죽여
+// stdout JSON 없이 끝나는 상황을 막는다. 타임아웃은 "검증 미완료"이며 FAIL_CLOSED(exit 1)다 —
+// Argon 세션의 긴 보고서 + Kiwi 형태소 그라운딩이 30초를 넘는 사례 대응.
+const VERIFY_TIMEOUT_MS = Number.parseInt(process.env.LAZYFORENSIC_VERIFY_TIMEOUT_MS || '', 10) || 25000;
+
 function runVerify(args) {
 	const attempts = [];
 	for (const { cmd, pre } of PYTHON_CANDIDATES) {
-		const res = spawnSync(cmd, [...pre, ...args], { cwd: root, encoding: 'utf-8', windowsHide: true });
+		const res = spawnSync(cmd, [...pre, ...args], { cwd: root, encoding: 'utf-8', windowsHide: true, timeout: VERIFY_TIMEOUT_MS });
 		if (res.error) {
 			if (res.error.code === 'ENOENT') {
 				attempts.push(`${cmd}: not found`);
 				continue;
+			}
+			if (res.error.code === 'ETIMEDOUT') {
+				return { res, cmd, spawnError: false, timedOut: true, attempts };
 			}
 			return { res, cmd, spawnError: true, attempts };
 		}
@@ -546,7 +554,15 @@ async function main() {
 		args.push('--claim-ledger', ledger);
 	}
 
-	const { res, spawnError, attempts } = runVerify(args);
+	const { res, spawnError, timedOut, attempts } = runVerify(args);
+
+	if (timedOut) {
+		console.error(`[HALLUCINATION GUARD] 검증 미완료 — verify_report.py 가 ${VERIFY_TIMEOUT_MS}ms 안에 끝나지 않았다 (FAIL_CLOSED). "${path.basename(targetFile)}"`);
+		console.error('[HINT] 보고서를 분할하거나 --morph-grounding 없이 수동 검증을 먼저 돌릴 것. 검증이 끝나기 전에는 제출하지 않는다.');
+		console.error(`[CMD] python scripts/verify_report.py "${targetFile}" --evidence <audit.json|audit_trail.jsonl> --json`);
+		process.stdout.write(JSON.stringify({ decision: 'block', reason: `[HALLUCINATION GUARD] 검증 미완료(타임아웃) — ${path.basename(targetFile)}` }) + '\n');
+		process.exit(1);
+	}
 
 	if (res === null) {
 		// 인터프리터 전무 — 검증 자체가 불가능하다. 모든 쓰기를 막으면 플러그인이

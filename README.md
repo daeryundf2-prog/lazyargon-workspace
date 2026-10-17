@@ -1,4 +1,4 @@
-# LazyForensic (v1.0.4)
+# LazyForensic (v1.0.5)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
@@ -182,6 +182,14 @@ python scripts/korean_morph_forensic.py --evidence case/audit.json --report case
 - **영상 스킬이 조용히 안 될 때**: `python skills/forensic-video/scripts/setup.py --check` —
   무엇이 없는지 + 플랫폼별 설치 명령을 출력한다.
 - **Windows에 python이 없어서**: 검증 게이트가 경고 후 통과한다(비활성). `python3` 설치를 권장.
+- **"Model unavailable, retrying (k/9)" 후 응답이 끊긴다 (Gemini 4 Argon)**: 큰 단일 파일 쓰기나 긴 사고 뒤 호스트의 무응답 60초 컷오프에 걸린 것이다. 보고서·HTML을 100줄 이하 청크로 나눠 쓰라고 지시하면 완화된다. `GEMINI.md`가 이미 이 규칙을 담고 있다.
+- **Argon을 골랐는데 Flash처럼 답한다**: API 키 모드(`modelProvider: "gemini"`)의 `agy`는 `gemini-4-argon`을 모르면 Gemini 3.8 Flash(High)로 폴백한다. 세션 시작 컨텍스트의 `세션 모델:` 값을 확인하라. `node ../lazyargon/scripts/doctor.mjs`가 이 설정을 경고한다.
+- **스킬이 목록에서 사라졌다 (App 2.22.0, agy 1.4.0)**: 앱 업데이트 뒤 커스텀 스킬이 UI에서 빠지거나 `agy -p "/skills"`가 빈 목록을 돌려주는 보고가 있다(후자는 1.4.0 회귀, antigravity-cli #1266). 스킬 탐색 경로는 `~/.gemini/config/skills/`, `~/.gemini/antigravity/skills/`(구버전), `~/.gemini/antigravity-cli/skills/`, 플러그인 `skills/`, `<워크스페이스>/.agents/skills/`다. 디스크에 파일이 있는지 먼저 보고, 있으면 대화형 세션에서 `/skills`로 다시 확인하라.
+- **배포 전 플러그인 검사**: agy 1.4.0 이상이면 `agy plugin validate --strict --json`이 실제 로더와 같은 규칙으로 검사한다. 구버전(1.3.6 미만)은 따옴표 없는 `description:`에 콜론이 있으면 스킬 로딩이 실패하므로 `node ../lazyargon/scripts/doctor.mjs`의 `frontmatter.description_colon` 결과를 본다.
+- **규칙이 적용되지 않는 것 같다**: 규칙 파일이 호스트 토큰 예산을 넘으면 잘리지 않고 통째로 빠진다(antigravity-cli #1254). `doctor.mjs`의 `rules.budget`이 두 플러그인 규칙 합계를 잰다.
+- **Ultra를 결제했는데 Starter 한도로 잡힌다**: 일부 지역 결제 계정에서 `language_server.log`의 `SetUserTier`가 비어 있는 보고가 있다. 앱 업데이트 → Reset Onboarding → 국가 연결 → 권한(entitlement) 지원 양식 순서로 처리한다.
+- **긴 작업이 "task cancelled by user"로 혼자 끝난다 (Windows App 2.23.1)**: 앱 쪽 보고된 문제다. 작업을 범위 잠금 파일 기준으로 잘게 나누고, 끊기면 새 대화에서 `.lazyargon/ulw-scope.md`를 읽고 잇는다.
+- **Windows `agy` 샌드박스에서 language server가 죽는다**: 샌드박스 모드의 알려진 문제다. 풀 액세스 대신 명령별 허용/거부로 운용하고, 증거 디렉토리는 `lock_evidence.ps1`로 OS 읽기전용을 걸어 훅 가드를 보강한다.
 - **카카오톡 파일이 깨져 보인다**: UTF-8/CP949/UTF-16을 자동 판별한다. 그래도 실패하면
   모바일 앱에서 텍스트로 재내보내기하고, 파일을 다른 인코딩으로 재저장하지 말 것.
 - **감사 체인 검증**: `python scripts/verify_audit_chain.py` (기본 `.lazyforensic/audit_trail.jsonl`, 파일 없으면 PASS·empty session)

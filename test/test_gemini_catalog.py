@@ -125,6 +125,38 @@ class GeminiCatalogTests(unittest.TestCase):
         self.assertIn("증거 오디오", ctx)
         self.assertRegex(ctx, r"korean_law: (ready|missing-build|missing-LAW_OC)")
         self.assertNotIn("LAW_OC=", ctx)
+        # 모델명이 없으면 unknown — 추정하지 않는다
+        self.assertIn("세션 모델: unknown", ctx)
+        self.assertIn("범위 잠금", ctx)
+        # 정적 GEMINI.md 가 런타임 블록보다 앞에 온다(캐시 접두 안정성)
+        self.assertLess(ctx.index("실패 폐쇄"), ctx.index("\n## 런타임\n"))
+
+    def test_session_start_quotes_host_model_name(self):
+        payload = json.dumps({"hook_event_name": "SessionStart", "modelName": "gemini-4-argon"})
+        env = dict(os.environ)
+        env.pop("ANTIGRAVITY_MODEL_NAME", None)
+        proc = subprocess.run(
+            ["node", str(ROOT / "scripts" / "session_start.mjs")],
+            input=payload, text=True, encoding="utf-8", capture_output=True, check=False, cwd=str(ROOT), env=env,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        ctx = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("세션 모델: gemini-4-argon", ctx)
+        self.assertNotIn("Argon이라고 가정하지 말 것", ctx)
+
+    def test_session_start_injects_pins_head(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pins_dir = Path(tmp) / ".lazyargon"
+            pins_dir.mkdir()
+            (pins_dir / "pins.md").write_text("- 원본 SHA-256: " + "c" * 64 + " (audit.json)\n", encoding="utf-8")
+            proc = subprocess.run(
+                ["node", str(ROOT / "scripts" / "session_start.mjs")],
+                input="{}", text=True, encoding="utf-8", capture_output=True, check=False, cwd=tmp,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            ctx = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+            self.assertIn("고정 식별자 (.lazyargon/pins.md", ctx)
+            self.assertIn("c" * 64, ctx)
 
     def test_manim_reference_stays_unregistered(self):
         self.assertTrue((SKILLS / "video-editor" / "manim-video" / "REFERENCE.md").is_file())
@@ -234,7 +266,7 @@ class GeminiCatalogTests(unittest.TestCase):
 
     def test_plugin_version_and_lane_copy(self):
         data = json.loads((ROOT / "plugin.json").read_text(encoding="utf-8"))
-        self.assertEqual(data["version"], "1.0.4")
+        self.assertEqual(data["version"], "1.0.5")
         self.assertIn("lanes", data["interface"]["longDescription"].lower())
         self.assertIn("not a forensic acquisition or court-admissibility suite", json.dumps(data, ensure_ascii=False).lower())
         self.assertTrue((ROOT / "docs" / "GAPS.md").is_file())

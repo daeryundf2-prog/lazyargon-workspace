@@ -22,9 +22,9 @@ metadata:
      ./scripts/py scripts/audio_survey.py <오디오파일_또는_폴더>
      ```
 2. **영상 내용 및 키프레임 분석**:
-   - `forensic-video`의 `watch.py`로 키프레임을 추출한 뒤, 반환된 이미지 경로를 호스트 네이티브 비전(`Read`)으로 직접 판독한다 (기본 `--detail efficient`, 최대 50프레임):
+   - `forensic-video`의 `watch.py`로 키프레임을 추출한 뒤, 반환된 이미지 경로를 호스트 네이티브 비전(`Read`)으로 직접 판독한다 (기본 `--detail efficient`, 개괄 20프레임 — 부족할 때만 50):
      ```bash
-     ./scripts/py skills/forensic-video/scripts/watch.py <영상파일> --detail efficient --max-frames 50
+     ./scripts/py skills/forensic-video/scripts/watch.py <영상파일> --detail efficient --max-frames 20
      ```
 3. **로컬 음성 전사 (STT)**:
    - `local_stt.py`를 사용해 로컬 Whisper(`faster-whisper` 또는 `whisper.cpp`)로 전사한다:
@@ -53,5 +53,8 @@ metadata:
 ## 규칙
 
 - 증거 오디오·영상은 명시적 동의 없이 외부 API로 전송하지 않는다.
-- 대용량 영상은 `watch.py --detail efficient --max-frames 50`으로 먼저 개괄 확인한 뒤 필요한 타임스탬프 구간만 `--timestamps`로 정밀 추출한다.
+- 대용량 영상은 `watch.py --detail efficient --max-frames 20`으로 먼저 개괄 확인한 뒤 필요한 타임스탬프 구간만 `--timestamps`로 정밀 추출한다. Gemini 4 Argon 세션에서 이미지 결과는 대화 전체와 함께 재전송돼 캐시 적중이 낮고(한 측정에서 약 4%) 한도를 빠르게 쓴다. 50프레임은 개괄이 부족할 때만 쓴다.
+- **프레임은 한 번만 읽는다**: 각 프레임을 `Read`로 1회 판독하고 관찰을 `frames_notes.md`(프레임 경로·타임스탬프·관찰 1~2줄)에 즉시 적는다. 이후 판단은 노트로 하고, 같은 이미지를 "다시 확인"하려고 재열람하지 않는다.
+- **글자·수치는 OCR, 말은 STT에서만**: 화면 속 글자, 손글씨, 계기판·다이얼·디지털 표시 수치는 `tesseract`/`scripts/local_ocr.py` 출력만 인용한다. 모델이 읽은 값은 `모델 판독(미검증)`으로 표기하며 OCR과 다르면 OCR 값을 쓴다. Argon은 손글씨 JSON 추출과 다이얼 판독에서 실패 사례가 보고됐다.
+- **오디오와 영상은 따로 분석한다**: 음성 내용은 `local_stt.py` 전사본, 시각 내용은 추출 프레임으로 각각 다룬다. 영상 파일을 통째로 모델에 보여 주고 대사를 받아 적게 하지 않는다 — 음성·영상을 분리 입력했을 때 날조가 최소였다는 보고가 있고, 모델 전사에는 명백한 오류 사례가 있다.
 - 전사·OCR 결과 파일(`.txt`/`.json`)은 증거 매니페스트(`evidence_manifest.py`) 체크포인트에 첨부할 수 있다.

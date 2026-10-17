@@ -1,7 +1,7 @@
 {
   "name": "lazyargon-workspace",
   "displayName": "LazyArgon Workspace",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Google Antigravity (Gemini 4 Argon, Gemini 3.8 Flash, Claude Opus/Sonnet 5.5) unified forensic, legal-tech & workspace assistant — 4 lanes (help/forensic/visual/legal). Not a forensic acquisition or court-admissibility suite. Bundles digital forensics, Korean document processing (HWP/HWPX), ECFS court evidence stamping/binding, legal drafting, PII masking, media analysis, and Humanize KR.",
   "author": {
     "name": "daeryundf2-prog",

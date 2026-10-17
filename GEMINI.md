@@ -1,7 +1,15 @@
 # LazyForensic — Gemini / Antigravity
 
-호스트는 Google Antigravity, 세션 UI는 사용자가 선택한 모델(Gemini 3.8 Flash, Claude Opus/Sonnet 5.5)을 따른다.
+호스트는 Google Antigravity, 세션 UI는 사용자가 선택한 모델을 따른다. 어떤 모델이 실제로 떠 있는지는 `## 런타임`의 `세션 모델` 값(호스트 보고값)만 믿는다. 플랜·설정 파일로 추정하지 않는다 — API 키 모드의 `agy`는 Argon을 인식 못 하면 Gemini 3.8 Flash(High)로 조용히 폴백한다.
 이 플러그인은 증거 자료를 정리하고 보고서 초안을 만든다. 포렌식 획득이나 법원 제출 적격성을 보장하지 않는다.
+
+| 세션 모델 | 제공 플랜 | 이 플러그인에서의 역할 |
+| :--- | :--- | :--- |
+| Gemini 4 Argon (MEDIUM 기본, HIGH 요청 가능) | Ultra · Enterprise · 유료 Pro(10/15~, 주간 전용 쿼터, MEDIUM/HIGH만) | 법률 초안·판결문 분석·보고서 초안·검증 판정 레인. 출력이 길고 느리며 한도를 빨리 쓴다 |
+| Gemini 3.8 Flash | Pro · Ultra | 파싱·추출·표 정리·초안 골격·단순 편집. `Model: "flash"` 레인의 실체 |
+| Claude Opus/Sonnet 5.5 | Ultra (할당량 희소) | 코드 변경의 교차 가족 최종 판정 1레인 |
+
+Argon 세션에서 지켜야 하는 기계적 제약(출처: `lazyargon/docs/argon-field-notes.md`): **(1)** 모든 쓰기는 100줄 이하 청크(호출당 20KB 미만) — 큰 단일 `write_to_file`이나 긴 사고 직후의 큰 쓰기는 호스트 60초 컷오프로 유실된다. **(2)** 실제 컨텍스트 상한은 UI 표시와 무관하게 256K이고 240~280K에서 컴팩션된다. 해시·파일 경로·사건번호·측정값은 200K 전에 `.lazyargon/pins.md`에 고정하고, 컴팩션("Resuming from a compaction") 뒤에는 고정 파일과 원본을 다시 읽은 다음에만 인용·수정한다. 요약 뒤 ID·해시를 지어낸 사례가 있다. **(3)** 쓴 파일은 다시 열어 확인한다. **(4)** 범위는 전수로 적는다 — 모델은 적힌 범위만 처리한다. **(5)** 보고서 요약은 10줄, 문단은 4문장 이하.
 
 ## 도구
 
@@ -16,30 +24,10 @@ OpenCode `task(...)`, `model_tier`, `subagent_type`, Cursor `Task`, `view_file`�
 
 ## `invoke_subagent` 계약
 
-최상위 필드는 `Subagents`, `toolAction`, `toolSummary`다.
-항목 필드는 `TypeName`, `Role`, `Model`, `Prompt`, `Workspace`다.
-`Model`은 `inherit` | `flash_lite` | `flash` | `pro`만 허용한다.
+스키마와 프롬프트 형식(TASK / DELIVERABLE / SCOPE / VERIFY / STOP / RETURN / WRITE / ROLE ENVELOPE)은 `docs/antigravity-tools.md` 한 곳에만 둔다. 규칙 파일이 호스트 예산을 넘으면 통째로 빠지므로 여기에 중복하지 않는다.
 
-```
-invoke_subagent(
-  Subagents=[{
-    TypeName: "self",
-    Role: "<short-role>",
-    Model: "inherit",
-    Prompt: """
-TASK: <명령형 작업>
-DELIVERABLE: <정확한 산출물 또는 판정>
-SCOPE: <경로와 제약>
-VERIFY: <부모가 재실행할 검증>
-ROLE ENVELOPE: mayFinalizeRun=false; mayModifyGlobalRunState=false; mustReturn=SubagentResultEnvelope; requiresParentAck=true
-"""
-  }],
-  toolAction: "<역할> 서브에이전트 호출",
-  toolSummary: "<한 줄 요약>"
-)
-```
-
-레인 힌트는 `hostEnforced=false`다. 탐색·파싱·초안·검증 레인에는 `inherit`를 기본으로 쓰며, 긴급 쿼터 폴백 시에만 `flash_lite`를 쓴다. Claude 5.5 세션이어도 `inherit`는 최종 판정 레인 하나에만 쓴다. Ultra 요금제에서 Claude 할당량이 Gemini보다 훨씬 적기 때문이다.
+레인 힌트는 `hostEnforced=false`다. 레인별 기본값은 `lazyargon/rules/AGENTS.md`의 표와 같다: 탐색·파싱·추출·표 정리·초안 골격은 `flash`, 보고서 본문·법률 초안·판결문 분석·검증 판정은 `inherit`, 긴급 쿼터 폴백만 `flash_lite`. Claude 5.5 세션이어도 `inherit`는 최종 판정 레인 하나에만 쓴다. Ultra 요금제에서 Claude 할당량이 Gemini보다 훨씬 적기 때문이다.
+팬아웃 전에 `예산: <N> 레인 / <M> 웨이브`를 선언한다. 사용자 지정이 없으면 4레인 / 2웨이브가 상한이다. 워커 프롬프트에는 종료 조건(같은 도구 3회 반복·도구 호출 40회·진척 없는 턴 2회 → UNKNOWN), 반환 상한(≤40줄), 그리고 승인이 필요한 도구(`run_command` 등)는 한 턴에 하나만 쓴다는 규칙을 넣는다 — 한 턴에 여러 도구를 섞으면 승인이 다른 단계로 넘어가 병렬 웨이브가 멈춘다(antigravity-cli #1249). 작업이 바뀌면 새 대화를 연다. 턴당 쿼터는 컨텍스트 길이에 비례한다.
 세션 UI는 사용자가 선택한 세션 모델을 따른다. 호스트 `modelName`이 다르지 않으면 자식 모델이 바뀌었다고 말하지 않는다.
 
 ## 실패 폐쇄 (할루시네이션 차단 — 최우선)
@@ -52,6 +40,11 @@ ROLE ENVELOPE: mayFinalizeRun=false; mayModifyGlobalRunState=false; mustReturn=S
 - "명백히 입증", "법원에 유효", "유출 확정", "court-admissible", "Timestomping으로 단정"을 쓰지 않는다.
 - 증거 오디오는 명시적 `--upload-audio` 동의 없이 외부로 보내지 않는다.
 - **근거-결론 분리**: 모든 수치·해시·시각·조문은 스크립트 stdout / MCP 응답에만 근거한다. 근거 없으면 `미확인`으로 둔다. 추측으로 빈칸을 채우지 않는다.
+- **모델 유보는 결측이지 오류가 아니다**: 모델이 답을 거부·유보하거나 안전 필터가 걸리면 해당 항목을 `미확인(모델 유보: <사유>)`로 적고 다음 항목으로 간다. 다른 표현으로 다시 물어 빈칸을 채우지 않는다. Argon은 모를 때 추측 대신 유보하는 빈도가 높으므로 이 경로가 자주 발생한다.
+- **빈 보고서로 통과하지 않는다**: `verify_report.py`가 결측 비율(`unverified.ratio`)을 출력한다. 수치·해시·시각 항목의 절반 이상이 `미확인`이면 WARN(`--strict`에서는 FAIL)이며, 항목별로 왜 미확인인지(증거 부재 / 모델 유보 / 도구 미설치)를 적어야 통과한다.
+- **코드베이스 감사 수치는 실행 근거로만**: "N개 중 M개 결함" 류의 감사 결론은 직접 연 `파일:라인`과 실행한 명령 출력에서만 나온다. 모델이 센 개수는 측정값이 아니다.
+- **민감 증거 원문은 스크립트가 다룬다**: 성적·폭력·혐오 표현이 담긴 증거(성희롱 카톡, 협박 메시지, 불법촬영물 메타데이터 등)는 Argon 안전 필터가 즉시 차단하는 경우가 있다. 원문 파싱·키워드 검색·타임라인화는 `parse_kakao.py`·`keyword_report.py`·`merge_timeline.py` 같은 결정적 스크립트에 맡기고, 모델은 원문을 다시 쓰거나 길게 인용하지 않는다. 보고서에는 표현 자체 대신 `증거 파일:행 번호`와 스크립트 출력 경로를 적는다. 차단되면 `미확인(모델 유보: 안전 필터)`로 적고 같은 원문을 다른 표현으로 재요청하지 않는다. 한 번 차단된 대화는 이후에도 계속 막히는 경향이 있으므로 남은 작업은 범위 잠금 파일을 들고 새 대화에서 잇는다. 같은 증거가 반복해서 걸리면 그 레인만 세션을 Claude 5.5로 바꿔 처리한다(별도 분류기). 메모리 덤프·PE 헤더·리버싱 분석(`memory-triage`, `forensic-mft-parser`)도 같은 필터에 걸린 보고가 있다. 오탐은 Antigravity 버전·모델·사고 수준을 붙여 신고한다.
+- **비전 판독은 텍스트 증거가 아니다**: 이미지·프레임 속 글자, 손글씨, 계기판·다이얼 수치는 `tesseract`/`local_ocr.py` 출력에서만 인용한다. 모델이 이미지를 보고 읽은 값은 `모델 판독(미검증)`으로 표기하고, OCR과 다르면 OCR 값을 쓴다. 음성 내용은 `local_stt.py` 전사본에서만 인용하며, 영상 파일을 모델에게 통째로 보여 주고 "무슨 말을 하는지" 받아 적게 하지 않는다.
 - **커버리지 주장은 감사 수신증으로만**: "전수/100% 커버리지" 류의 감사 결론은 `node scripts/coverage_audit.mjs --source <원문파일> --target <산출물…> --json <수신증.json>` 출력으로만 뒷받침한다. 감사 전에 원문을 반드시 파일로 저장하고, 원문 없는 감사(자체 생성 키워드 목록과의 대조)는 하지 않는다 — 도구가 `--source` 부재 시 실행을 거부한다. 수신증에는 항목별 원문 행 → 산출 위치 매핑이 남는다.
 - **부모 검증**: `forensic-report` 초안은 `Model: "inherit"`가 `python scripts/verify_report.py <보고서> --evidence <audit.json> --morph-grounding --high-fidelity`로 재검증한다 (`verify_report.py` 출력이 최종 판정 권한). `FAIL`이면 제출 금지.
 - **High-Fidelity 비파라메트릭 모드**: 포렌식 보고서 작성 시 `verify_report.py`에 `--high-fidelity`를 강제하며, 원본 증거와 `<evidence>` 태그 누락 또는 형태소 커버리지 70% 미달 시 즉시 차단한다.
@@ -60,7 +53,7 @@ ROLE ENVELOPE: mayFinalizeRun=false; mayModifyGlobalRunState=false; mustReturn=S
 
 한 턴에 **레인 하나**만 고른다. 레인 안에서 `SKILL.md` / `REFERENCE.md` / `INDEX.md`를 **하나만** 읽는다.
 
-> **무조건 검증 (사후 게이트)**: 채팅 트리거(`보고서`/`검토해줘`/`검증해줘`/`검증`/`할루시네이션`/`할루체크`/`팩트체크`/`거짓말검사`/`사실확인`/`무결성검사`/`verify`)가 포함된 쓰기에는 호스트 `PostToolUse`가 `hallucination_guard.mjs → verify_report.py`를 재실행한다. 이것은 **사후 게이트**다 — 파일이 이미 쓰인 뒤 검사하며, 호스트가 `failurePolicy: FAIL_CLOSED`(exit 1)을 지원할 때 후속 제출이 차단된다. bash 리다이렉트 쓰기도 같은 게이트를 거친다. python 미설치·대상 미특정 시 경고 후 통과(스킵 경로는 `docs/GAPS.md`). 검증 FAIL이면 파일을 수정 전까지 제출 금지. 슬래시 `/verify`, `/할루체크`, `/검증` 도 동일 게이트.
+> **무조건 검증 (사후 게이트)**: 채팅 트리거(`보고서`/`검토해줘`/`검증해줘`/`검증`/`할루시네이션`/`할루체크`/`팩트체크`/`거짓말검사`/`사실확인`/`무결성검사`/`verify`, 슬래시 `/verify`·`/할루체크`·`/검증`)가 포함된 쓰기(bash 리다이렉트 포함)는 `PostToolUse`가 `hallucination_guard.mjs → verify_report.py`로 재검사한다. 파일이 쓰인 뒤 검사하며 호스트가 `FAIL_CLOSED`(exit 1)를 지원할 때 후속 제출이 막힌다. python 미설치·대상 미특정·검증 타임아웃의 처리는 `docs/GAPS.md`. FAIL이면 수정 전까지 제출 금지.
 
 ### Help
 
@@ -119,4 +112,4 @@ ROLE ENVELOPE: mayFinalizeRun=false; mayModifyGlobalRunState=false; mustReturn=S
 
 전체 도구 형식은 `docs/antigravity-tools.md`에 있다.
 
-> **제거된 카탈로그**: 무라이선스 제3자 콘텐츠(`mengto-skills/`, `design-systems/`, `vendor/`, `skills/slopslap/`, UI 피커 스킬)는 배포 라이선스 리스크 때문에 본 레포에서 제거되었다. 필요하면 별도로 라이선스를 확보한 옵션 팩으로 제공한다.
+제거된 무라이선스 카탈로그의 사유는 `docs/GAPS.md`에 있다.
