@@ -318,12 +318,43 @@ def check_hash_file_binding(report_text: str, evidence_pairs: dict[str, list[str
     for tm in EVIDENCE_TAG_RE.finditer(report_text):
         for hm in re.finditer(r"\b([a-fA-F0-9]{64})\b", tm.group(1)):
             tagged_hashes.add(hm.group(1).lower())
-    # 확장자에 최소 1개 영문자를 요구해 2.3 / 192.168.1.10 / example.com 배제.
-    # 확장자 뒤 한국어 조사(의/은/는/이/가/을/를/도/에/에서/와/과/로)를 허용해
-    # "secret.zip의 해시" 형태의 파일명 토큰도 잡는다.
+    # 확장자에 최소 1개 영문자를 요구해 2.3 / 192.168.1.10 배제.
+    # 따옴표·백틱 내부의 점(.)으로 역추적(backtrack)해 "com.android.mms"나
+    # "com.android..."를 "com.android" 파일명으로 오인하지 않도록 구분자와
+    # 후행 lookahead를 엄격히 제한한다.
     file_token_re = re.compile(
-        r"([^\s|]+\.[A-Za-z0-9]*[A-Za-z][A-Za-z0-9]{0,7})(?:의|은|는|이|가|을|를|도|에|에서|와|과|로|으로|랑|이랑)?(?=[\s,.:;)\]|가-힣]|$)"
+        r"([^\s|\"'`()[\]{}<>:;]+?\.[A-Za-z0-9]*[A-Za-z][A-Za-z0-9]{0,7})(?:의|은|는|이|가|을|를|도|에|에서|와|과|로|으로|랑|이랑)?(?=[\s,:;)\]|\"'`>}]|\.(?![A-Za-z0-9_])|[가-힣]|$)"
     )
+    pkg_or_domain_prefix_re = re.compile(
+        r"^(?:com|org|net|io|kr|co|go|or|ac|re|pe|jp|cn|us|uk|de|fr|ru|au|ca|br|in|it|es|nl|se|no|fi|dk|ch|at|be|pl|cz|hu|gr|tr|il|za|mx|ar|cl|nz|sg|hk|tw|my|th|vn|id|ph|edu|gov|mil|int|app|dev|tech|ai|gg|me|tv|cc|xyz|info|biz|pro|mobi|asia|tel|android|androidx|java|javax|kotlin|kotlinx|apple|dalvik|libcore|sun|sec|www)\.",
+        re.IGNORECASE,
+    )
+
+    def _extract_line_file_tokens(line_str: str) -> set[str]:
+        tokens: set[str] = set()
+        # <evidence source="audit.json"> 등 태그 속성 내부 파일명은 해시 소유 대상 파일이 아니므로 제거
+        clean_line = re.sub(r"</?[A-Za-z][^>]*>", " ", line_str)
+        for fm in file_token_re.finditer(clean_line):
+            raw_tok = fm.group(1)
+            # JSON 키("pkg.name": ... 또는 key.sub: ...) 배제
+            after_slice = clean_line[fm.end():]
+            if re.match(r'^["\'`]*\s*:', after_slice):
+                continue
+            # 앞쪽이 URL 스킴(://)이거나 점(.)/생략부호(...)와 맞닿은 패키지 조각 배제
+            before_slice = clean_line[:fm.start()]
+            if before_slice.endswith(("://", ".")):
+                continue
+            if after_slice.startswith(".."):
+                continue
+            cleaned_raw = raw_tok.strip().strip("`'\"()[]<>")
+            if pkg_or_domain_prefix_re.match(cleaned_raw):
+                continue
+            nf = _normalize_file_token(raw_tok)
+            if not nf or pkg_or_domain_prefix_re.match(nf):
+                continue
+            tokens.add(nf)
+        return tokens
+
     for li, line in enumerate(lines):
         for m in re.finditer(r"\b([a-fA-F0-9]{64})\b", line):
             h = m.group(1).lower()
@@ -337,11 +368,7 @@ def check_hash_file_binding(report_text: str, evidence_pairs: dict[str, list[str
             window_lines_range = range(max(0, li - 2), min(len(lines), li + 3))
             window_text_norm = "\n".join(lines[wli] for wli in window_lines_range).casefold()
             for wli in window_lines_range:
-                for fm in file_token_re.finditer(lines[wli]):
-                    nf = _normalize_file_token(fm.group(1))
-                    if nf.startswith(("com.android.", "com.samsung.", "com.apple.", "org.videolan.")):
-                        continue
-                    window_files.add(nf)
+                window_files.update(_extract_line_file_tokens(lines[wli]))
             owners_norm = [_normalize_file_token(o) for o in owners]
             for on in owners_norm:
                 if on and on in window_text_norm:
@@ -359,7 +386,7 @@ def check_hash_file_binding(report_text: str, evidence_pairs: dict[str, list[str
                 continue
             # 표 행 엄격: '|' 포함 행에서는 같은 행의 파일명을 우선 대조한다.
             if "|" in line:
-                same_row = {_normalize_file_token(fm.group(1)) for fm in file_token_re.finditer(line) if not _normalize_file_token(fm.group(1)).startswith(("com.android.", "com.samsung.", "com.apple."))}
+                same_row = _extract_line_file_tokens(line)
                 for on in owners_norm:
                     if on and on in line.casefold():
                         same_row.add(on)

@@ -22,6 +22,9 @@ description: "포렌식 감정서/보고서 초안. 측정값만 채운다. 의�
 - [ ] KST/UTC를 구분할 수 없으면 "미확인"으로 표기
 - [ ] `$MFT`, Timestomping 등 용어는 실제 분석한 경우에만 사용
 - [ ] "명백히 입증", "법원에 유효" 같은 선결론 금지
+- [ ] **법적 유불리 평가 및 추측 배제**: "상간소송 방어에 결정적", "양날의 검", "유리/불리한 정황" 등 소송 전략·법적 유불리 평가 및 추측성 서술을 일절 배제하고 순수 사실관계(측정값·원문 발화·로그)만 기술할 것
+- [ ] **임의 요약 콜아웃 및 자기검증 배지 삽입 금지**: 에이전트 임의의 파란색 요약 콜아웃 박스나 `[전수 검증 완료]`, `(N개 발언 전문 수록)` 등 자기검증 배지·메타 주석을 본문에 삽입하지 말 것
+- [ ] **대화록/녹취록 표 조판 및 인쇄 가독성 준수**: 대화록/녹취록 표에서 화자 이름 열에 `white-space: nowrap`을 적용해 3글자 성명이 두 줄로 깨지는 현상을 방지하고, 인쇄 가독성 기준(본문 `≥10pt`, 표 `≥9pt`)을 준수할 것
 
 서식: `templates/forensic_report_template.md`. 초안은 `invoke_subagent` `Model: "inherit"`, 선결론 점검은 `Model: "inherit"`.
 
@@ -55,4 +58,5 @@ python scripts/korean_morph_forensic.py --evidence audit.json --report "보고�
 - 금지문구(`명백히 입증`, `법원에 유효`, `유출 확정`, `Timestomping으로 단정`, `court-admissible`) 포함 시 `FAIL`
 - Chain of Custody/시각이 없으면 `미측정`/`미확인`으로 둔다. 빈칸을 추측으로 채우지 않는다.
 - High-Fidelity 모드(`--high-fidelity`)에서는 증거 파일 및 `<evidence>` 인용 태그가 필수이며 70% 미달 시 차단됩니다.
+
 

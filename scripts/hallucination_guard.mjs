@@ -344,6 +344,8 @@ function extractTarget(sources) {
 // 금지문구 스캐너까지 몰려 차단되는 과잉 트리거를 막는다.
 const GUARD_KEYWORD_RE = /보고서|감정서|소견서|의견서|진단서|확인서|분석서|결과서|검토해줘|검증해줘|검증|할루시네이션|할루체크|팩트체크|거짓말검사|사실확인|무결성검사|verify|\/verify|\/할루체크|\/검증|법적.*검토|요약해줘|기록해줘|\/요약|\/기록/i;
 const REPORT_PATH_HINT_RE = /report|보고서|감정서|소견서|의견서|진단서|확인서|분석서|결과서|draft|초안|analysis|opinion|summary|findings|notes|요약|기록/i;
+const NON_REPORT_DOC_RE = /매뉴얼|가이드|튜토리얼|교재|핸드북|치트시트|강의|강좌|안내서|설명서|manual|guide|tutorial|handbook|cheatsheet|playbook|reference|readme/i;
+const EXPLICIT_REPORT_NAME_RE = /보고서|감정서|소견서|의견서|진단서|확인서|분석서|결과서|타임라인|timeline|(?:^|[-_])(?:report|findings|opinion)(?:[-_\.]|$)/i;
 const READ_CAP_BYTES = 2 * 1024 * 1024; // shouldGuard 내용 훑기 상한
 const TAIL_SAMPLE_BYTES = 512 * 1024; // 대용량 파일 후미 샘플 (후미 배치 우회 방지)
 
@@ -387,9 +389,12 @@ function shouldGuard(targetFile, rawTexts) {
 	const keywordHit = GUARD_KEYWORD_RE.test(rawTexts.join('\n'));
 	const reportExt = /\.(md|html|txt)$/i.test(targetFile);
 	// 경로 힌트는 basename에만 적용 — 디렉터리명/부분문자열 오탐 방지.
-	// 토큰 경계로 묶어 reporting.md 정도는 허용하고 notes/report 디렉터리
-	// 안의 무관 파일이 내용 무관 발동하는 것을 막는다.
+	// 교육 매뉴얼/가이드(예: iOS_포렌식_판독_매뉴얼.md) 등 일반 참조 문서는
+	// 대화나 본문에 '보고서'/'해시' 단어가 있더라도 사건 감정서가 아니므로 제외한다.
 	const base = path.basename(targetFile);
+	if (NON_REPORT_DOC_RE.test(base) && !EXPLICIT_REPORT_NAME_RE.test(base)) {
+		return false;
+	}
 	const reportPathHint = /(?:^|[-_])(?:report|summary|findings|notes|draft|analysis|opinion)(?:[-_\.]|$)/i.test(base)
 		|| /보고서|감정서|소견서|의견서|진단서|확인서|분석서|결과서|초안|요약|기록/.test(base);
 	if (keywordHit && reportExt) return true;

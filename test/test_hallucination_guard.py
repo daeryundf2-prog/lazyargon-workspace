@@ -364,6 +364,50 @@ class HallucinationGuardTests(unittest.TestCase):
         self.assertEqual(data["score"], 100)
         self.assertEqual(data["passed"], data["total"])
 
+    def test_verify_report_hash_binding_ignores_json_keys_and_package_names(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "android_report.md"
+            evidence = Path(tmp) / "audit.json"
+            h = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            evidence.write_text(json.dumps({"file": "msg_store.db", "sha256": h}), encoding="utf-8")
+            report.write_text(
+                '# 감정서\n'
+                '패키지 경로: "com.android.providers.telephony" ("com.android...")\n'
+                f'메타데이터: {{"pkg.name": "com.kakao.talk", "sha256": "{h}"}}\n'
+                '대상 파일: msg_store.db\n',
+                encoding="utf-8",
+            )
+            proc = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "verify_report.py"), str(report), "--evidence", str(evidence), "--json"],
+                capture_output=True, text=True, encoding="utf-8", cwd=str(ROOT),
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            data = json.loads(proc.stdout)
+            self.assertEqual(data["errors"], [])
+
+    def test_hallucination_guard_skips_manual_and_general_doc_with_report_word(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manual = Path(tmp) / "iOS_포렌식_판독_매뉴얼.md"
+            manual.write_text(
+                "# iOS 포렌식 판독 매뉴얼\n\n"
+                "본 매뉴얼은 포렌식 보고서 작성 시 참고할 아티팩트 해시(SHA-256) 개념과 "
+                "타임스탬프(2025-05-01 10:00:00) 해석 방법을 설명합니다.\n",
+                encoding="utf-8",
+            )
+            payload = json.dumps({
+                "tool_input": {
+                    "file_path": str(manual),
+                    "content": "포렌식 보고서 작성용 매뉴얼 정리",
+                }
+            })
+            proc = subprocess.run(
+                ["node", str(ROOT / "scripts" / "hallucination_guard.mjs")],
+                input=payload,
+                capture_output=True, text=True, encoding="utf-8", cwd=tmp,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertNotIn("timeline 근거 파일 미발견", proc.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
