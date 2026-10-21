@@ -51,6 +51,7 @@ try:
         STATUTE_BOUNDS,
         STATUTE_SUBARTICLES,
         VALID_CASE_CODES,
+        WARNING_PATTERNS,
         _make_statute_pattern,
     )
     from scripts.report_core import (
@@ -83,6 +84,7 @@ except ImportError:  # scripts/ 가 sys.path 에 직접 있는 경우
         STATUTE_BOUNDS,
         STATUTE_SUBARTICLES,
         VALID_CASE_CODES,
+        WARNING_PATTERNS,
         _make_statute_pattern,
     )
     from report_core import (
@@ -186,10 +188,16 @@ def main(argv=None):
     if certainty_variants:
         errors.append(f"과단정 변형 표현 발견: {certainty_variants[:3]} — 부정/한정 표기로 바꿀 것")
 
+    # 1-2) 슬롭 및 표기 규격 경고 패턴 (자가검증 배지, 내부 교차검증 메모, 소수점 초 표기)
+    for pat, warn_msg in WARNING_PATTERNS:
+        m = pat.search(text)
+        if m:
+            warnings.append(f"{warn_msg}: '{m.group(0)}'")
+
     # 2) 해시 grounding (SHA-256 전체 + MD5/SHA-1 라벨 붙은 값)
     report_hashes = {h.lower() for h in extract_hashes(text)}
     if report_hashes:
-        evidence_hashes = load_evidence_hashes(args.evidence)
+        evidence_hashes = load_evidence_hashes(args.evidence, report_path=report_path)
         if evidence_hashes:
             orphan = report_hashes - evidence_hashes
             if orphan:
@@ -212,7 +220,7 @@ def main(argv=None):
     #      파일 서술에 재사용하는 증거 조작을 차단한다. report_hashes 는
     #      위에서 1회 계산한 것을 재사용한다.
     if report_hashes and args.evidence:
-        evidence_pairs = load_evidence_hash_file_pairs(args.evidence)
+        evidence_pairs = load_evidence_hash_file_pairs(args.evidence, report_path=report_path)
         for v in check_hash_file_binding(text, evidence_pairs):
             if v.startswith("[SCHEMA-WARN]"):
                 warnings.append(v[len("[SCHEMA-WARN] "):])

@@ -412,3 +412,19 @@ VALID_CASE_CODES = {
 # 4-0) 미래 시각 판정에서 '시행 예정/계획/예상' 등 미래 문맥은 정상 서술이므로
 #      WARN으로 강등한다.
 FUTURE_CONTEXT_RE = re.compile(r"예정|시행|계획|예상|예고|발효\s*예|until|scheduled|planned", re.IGNORECASE)
+
+# 6) 보고서·녹취록 슬롭 및 표기 규격 위반 경고 패턴 (WARN)
+WARNING_PATTERNS: list[tuple[re.Pattern, str]] = [
+    (
+        re.compile(r"\[전수\s*검증\s*완료\]|\(\d*개?\s*발언\s*전문\s*수록\)|\(전문\s*수록\)"),
+        "미요청 자가검증 배지 사용 — 보고서·녹취록에 자가검증 배지를 넣지 마십시오",
+    ),
+    (
+        re.compile(r"에이닷\s*\d*번?\s*발언\s*교차확인"),
+        "에이전트 내부 교차검증 메모 노출 — 전사 원문만 기재하고 내부 교차확인 메모는 제거하십시오",
+    ),
+    (
+        re.compile(r"\b\d+\.\d+\s*(?:s|초)\b"),
+        "소수점 초(float seconds) 표기 — 시각은 'MM분 SS초' 또는 'MM:SS' 정수 단위로 표기하십시오",
+    ),
+]

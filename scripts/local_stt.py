@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import contextlib
+import difflib
 import importlib.util
 import json
 import math
@@ -157,6 +158,60 @@ def _vtt_ts(h: str, m: str, s: str, ms: str) -> float:
     return round(int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0, 3)
 
 
+def format_mmss(sec: float | None) -> str | None:
+    """초(sec)를 정수 'MM:SS' (1시간 이상 시 'HH:MM:SS') 문자열로 변환한다."""
+    if sec is None:
+        return None
+    total = max(0, int(float(sec)))
+    h, rem = divmod(total, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h:02d}:{m:02d}:{s:02d}" if h > 0 else f"{m:02d}:{s:02d}"
+
+
+def format_kor_time(sec: float | None) -> str | None:
+    """초(sec)를 정수 'MM분 SS초' (1시간 이상 시 'HH시간 MM분 SS초') 문자열로 변환한다."""
+    if sec is None:
+        return None
+    total = max(0, int(float(sec)))
+    h, rem = divmod(total, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h:02d}시간 {m:02d}분 {s:02d}초" if h > 0 else f"{m:02d}분 {s:02d}초"
+
+
+def norm_kr(text: str, phonetic_map: list[tuple[str, str]] | None = None) -> str:
+    """한국어 음운 정규화 — 괄호 주석·공백·특수문자를 제거하고 한글/숫자만 남긴다."""
+    s = re.sub(r"\[.*?\]|\(.*?\)", "", str(text or ""))
+    for src, dst in phonetic_map or []:
+        s = s.replace(src, dst)
+    return "".join(re.findall(r"[가-힣0-9]+", s))
+
+
+def verify_transcript_similarity(
+    claimed_text: str,
+    server_text: str,
+    youtube_text: str = "",
+    phonetic_map: list[tuple[str, str]] | None = None,
+) -> dict:
+    """주장 발언(claimed_text)과 서버 STT/유튜브 자막 원음 간 일치율(pct) 및 판정 태그를 반환한다."""
+    nc = norm_kr(claimed_text, phonetic_map)
+    ns = norm_kr(server_text, phonetic_map)
+    ny = norm_kr(youtube_text, phonetic_map)
+    if not nc or (not ns and not ny):
+        return {"pct": 0, "ratio": 0.0, "tag": "서버STT 미확인 (원음 일치율 0%)", "verified": False}
+    r_srv = difflib.SequenceMatcher(None, nc, ns, autojunk=False).ratio() if ns else 0.0
+    r_yt = difflib.SequenceMatcher(None, nc, ny, autojunk=False).ratio() if ny else 0.0
+    best = max(r_srv, r_yt)
+    if (ns and nc in ns) or (ny and nc in ny):
+        best = 1.0
+    pct = int(round(best * 100))
+    return {
+        "pct": pct,
+        "ratio": round(best, 4),
+        "tag": f"서버STT 검증완료 (원음 일치율 {pct}%)",
+        "verified": pct >= 55,
+    }
+
+
 def parse_vtt_segments(vtt_text: str) -> list[dict]:
     """YouTube 서버 자동자막(.vtt)에서 중복 롤업 줄을 제거하고 타임스탬프 세그먼트로 변환한다."""
     segments: list[dict] = []
@@ -180,7 +235,14 @@ def parse_vtt_segments(vtt_text: str) -> list[dict]:
         if text_lines:
             merged = " ".join(text_lines)
             if merged != last_text and (end - start) >= 0.05:
-                segments.append({"start": start, "end": end, "text": merged})
+                segments.append({
+                    "start": start,
+                    "end": end,
+                    "start_mmss": format_mmss(start),
+                    "end_mmss": format_mmss(end),
+                    "start_kor": format_kor_time(start),
+                    "text": merged,
+                })
                 last_text = merged
     return segments
 
@@ -269,7 +331,14 @@ def transcribe_google_server(path: Path, lang: str | None = None, chunk_sec: flo
             ad = sr.AudioData(pcm, 16000, 2)
             txt = rec.recognize_google(ad, language=lang_code)
             if txt and txt.strip():
-                return {"start": s, "end": e, "text": txt.strip()}
+                return {
+                    "start": s,
+                    "end": e,
+                    "start_mmss": format_mmss(s),
+                    "end_mmss": format_mmss(e),
+                    "start_kor": format_kor_time(s),
+                    "text": txt.strip(),
+                }
         except Exception:
             return None
         return None

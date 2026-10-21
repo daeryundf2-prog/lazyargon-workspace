@@ -154,35 +154,90 @@ def read_text_smart(path: Path, max_bytes: int = 8 * 1024 * 1024) -> tuple[str, 
     return raw.decode("utf-8", errors="replace"), "utf-8(lossy)" + ("(truncated)" if truncated else ""), True
 
 
-def load_evidence_hashes(evidence_paths: list[str]) -> set[str]:
+def _is_same_report_record(item: dict, rep_norm: str | None, rep_resolve: Path | None) -> bool:
+    if not rep_norm and not rep_resolve:
+        return False
+    for k in ("path", "file", "filename", "file_name", "target"):
+        v = item.get(k)
+        if not isinstance(v, str) or not v.strip():
+            continue
+        if rep_norm and _normalize_file_token(v) == rep_norm:
+            return True
+        if rep_resolve:
+            try:
+                if Path(v).resolve() == rep_resolve:
+                    return True
+            except Exception:
+                pass
+    return False
+
+
+def load_evidence_hashes(
+    evidence_paths: list[str] | str | Path,
+    report_path: str | Path | None = None,
+) -> set[str]:
+    if isinstance(evidence_paths, (str, Path)):
+        evidence_paths = [str(evidence_paths)]
     hashes: set[str] = set()
-    for p in evidence_paths:
+    rep_norm = _normalize_file_token(str(report_path)) if report_path else None
+    rep_resolve = None
+    if report_path:
+        try:
+            rep_resolve = Path(report_path).resolve()
+        except Exception:
+            rep_resolve = None
+
+    for p in evidence_paths or []:
         path = Path(p)
         if not path.exists():
             continue
+        if rep_resolve:
+            try:
+                if path.resolve() == rep_resolve:
+                    continue
+            except Exception:
+                pass
         try:
             text = path.read_text(encoding="utf-8", errors="ignore")
         except Exception:
             continue
-        hashes.update(h.lower() for h in extract_hashes(text))
-        # json / jsonl 구조 필드 (sha256, md5, sha1)
         objs: list = []
+        non_json_lines: list[str] = []
         try:
             data = json.loads(text)
             objs.append(data)
         except Exception:
             for line in text.splitlines():
+                s = line.strip()
+                if not s:
+                    continue
                 try:
-                    objs.append(json.loads(line))
+                    objs.append(json.loads(s))
                 except Exception:
-                    pass
+                    non_json_lines.append(line)
+        if non_json_lines:
+            hashes.update(h.lower() for h in extract_hashes("\n".join(non_json_lines)))
         for obj in objs:
             items = obj if isinstance(obj, list) else [obj]
             for item in items:
                 if isinstance(item, dict):
+                    if _is_same_report_record(item, rep_norm, rep_resolve):
+                        continue
                     for key, val in item.items():
                         if isinstance(val, str) and HASH_VALUE_RE.match(val):
                             hashes.add(val.lower())
+                    hashes.update(h.lower() for h in extract_hashes(json.dumps(item, ensure_ascii=False)))
+                else:
+                    hashes.update(h.lower() for h in extract_hashes(json.dumps(item, ensure_ascii=False)))
+
+    pins_path = Path.cwd() / ".lazyargon" / "pins.md"
+    if pins_path.is_file():
+        try:
+            pins_text = pins_path.read_text(encoding="utf-8", errors="ignore")
+            for h in re.findall(r"\b[a-fA-F0-9]{64}\b", pins_text):
+                hashes.add(h.lower())
+        except Exception:
+            pass
     return hashes
 
 
@@ -193,7 +248,10 @@ def _normalize_file_token(tok: str) -> str:
     return cleaned.split("/")[-1].strip("`'\"()[]<>").casefold()
 
 
-def load_evidence_hash_file_pairs(evidence_paths: list[str]) -> dict[str, list[str]]:
+def load_evidence_hash_file_pairs(
+    evidence_paths: list[str],
+    report_path: str | Path | None = None,
+) -> dict[str, list[str]]:
     """evidence JSON에서 {해시: [파일명...]} 매핑을 추출한다.
 
     지원 스키마: dict의 (path|file|filename|name)↔(sha256|sha1|md5|hash) 필드 쌍,
@@ -201,6 +259,13 @@ def load_evidence_hash_file_pairs(evidence_paths: list[str]) -> dict[str, list[s
     형태의 텍스트 표.
     """
     pairs: dict[str, list[str]] = {}
+    rep_norm = _normalize_file_token(str(report_path)) if report_path else None
+    rep_resolve = None
+    if report_path:
+        try:
+            rep_resolve = Path(report_path).resolve()
+        except Exception:
+            rep_resolve = None
 
     def _add(h: str, fname: str):
         h = h.strip().lower()
@@ -231,6 +296,8 @@ def load_evidence_hash_file_pairs(evidence_paths: list[str]) -> dict[str, list[s
                 _walk(item, parent_fname)
             return
         if not isinstance(obj, dict):
+            return
+        if _is_same_report_record(obj, rep_norm, rep_resolve):
             return
         # 이 객체 안의 해시들: 같은 객체의 파일명 후보, 없으면 부모의 파일명
         fnames = _fname_candidates(obj)

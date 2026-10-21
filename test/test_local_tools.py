@@ -24,6 +24,8 @@ imgsim = load_module("image_similarity", "scripts/image_similarity.py")
 vidfp = load_module("video_fingerprint", "scripts/video_fingerprint.py")
 local_stt = load_module("local_stt", "scripts/local_stt.py")
 audit_local = load_module("local_only_audit", "scripts/local_only_audit.py")
+crime_xlsx = load_module("crime_schedule_xlsx", "scripts/crime_schedule_xlsx.py")
+verify_rep = load_module("verify_report", "scripts/verify_report.py")
 
 try:
     from PIL import Image  # noqa: F401
@@ -181,7 +183,29 @@ class LocalSttTests(unittest.TestCase):
         segs = local_stt.parse_vtt_segments(vtt)
         self.assertEqual(len(segs), 2)
         self.assertEqual(segs[0]["text"], "안녕하세요 테스트입니다")
+        self.assertEqual(segs[0]["start_mmss"], "00:01")
+        self.assertEqual(segs[0]["end_mmss"], "00:03")
+        self.assertEqual(segs[0]["start_kor"], "00분 01초")
         self.assertEqual(segs[1]["text"], "두 번째 문장")
+
+    def test_format_mmss_and_kor_time(self):
+        self.assertEqual(local_stt.format_mmss(384.94), "06:24")
+        self.assertEqual(local_stt.format_mmss(3984.2), "01:06:24")
+        self.assertEqual(local_stt.format_kor_time(384.94), "06분 24초")
+        self.assertIsNone(local_stt.format_mmss(None))
+        self.assertIsNone(local_stt.format_kor_time(None))
+
+    def test_norm_kr_and_similarity(self):
+        pmap = [("설계", "설기"), ("진도개", "진돗개")]
+        self.assertEqual(local_stt.norm_kr("[웃음] 설계를 데리고 (확인)", pmap), "설기를데리고")
+        res = local_stt.verify_transcript_similarity(
+            "설기를 데리고 나갔다",
+            "오늘 설계를 데리고 나갔다 왔어",
+            phonetic_map=pmap,
+        )
+        self.assertEqual(res["pct"], 100)
+        self.assertTrue(res["verified"])
+        self.assertIn("서버STT 검증완료 (원음 일치율 100%)", res["tag"])
 
     def test_sensevoice_tag_parse(self):
         raw = "<|ko|><|ANGRY|><|Speech|><|withitn|>돈 안 갚으면 가만 안 둬 <|SIGH|>"
@@ -261,6 +285,44 @@ class LocalOnlyAuditTests(unittest.TestCase):
     def test_plugin_repo_has_no_ungated(self):
         # 실제 레포에 새 UNGATED 경로가 생기면 이 테스트가 실패한다
         self.assertEqual(audit_local.main(["--json"]), 0)
+
+
+class CrimeScheduleXlsxAndReportGuardTests(unittest.TestCase):
+    def test_calc_visual_lines_and_youtube_url(self):
+        self.assertEqual(crime_xlsx.calc_visual_lines("", 20.0), 1)
+        self.assertGreaterEqual(crime_xlsx.calc_visual_lines("가나다라마바사아자차카타파하" * 4, 20.0), 4)
+        url = crime_xlsx.youtube_jump_url("20260405_방송_[dQw4w9WgXcQ].mp4", 384.9, pre_roll=2)
+        self.assertEqual(url, "https://youtu.be/dQw4w9WgXcQ?t=382")
+
+    def test_audit_schedule_consistency(self):
+        rows = [
+            {"row": 3, "transcript": "강아지 설기가 짖었다", "issue": "반려견 설기 학대 허위사실"},
+            {"row": 4, "transcript": "날씨가 참 좋다", "issue": "반려견 설기 유기 허위사실"},
+        ]
+        bad = crime_xlsx.audit_schedule_consistency(rows, {"설기": ["설기", "설계", "강아지", "진돗개"]})
+        self.assertEqual(len(bad), 1)
+        self.assertEqual(bad[0]["row"], 4)
+
+    def test_self_reference_hash_excluded_and_pins_loaded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rep = Path(tmp) / "report.md"
+            self_hash = "a" * 64
+            pin_hash = "b" * 64
+            rep.write_text(f"보고서 해시 {self_hash}", encoding="utf-8")
+            trail = Path(tmp) / "audit_trail.jsonl"
+            trail.write_text(json.dumps({"file": str(rep), "sha256": self_hash}) + "\n", encoding="utf-8")
+            pins_dir = Path(tmp) / ".lazyargon"
+            pins_dir.mkdir()
+            (pins_dir / "pins.md").write_text(f"- 고정 해시: {pin_hash}\n", encoding="utf-8")
+            old_cwd = Path.cwd()
+            try:
+                import os
+                os.chdir(tmp)
+                hashes = verify_rep.load_evidence_hashes([str(trail)], report_path=rep)
+            finally:
+                os.chdir(old_cwd)
+            self.assertNotIn(self_hash, hashes)
+            self.assertIn(pin_hash, hashes)
 
 
 if __name__ == "__main__":

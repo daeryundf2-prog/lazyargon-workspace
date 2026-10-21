@@ -66,6 +66,11 @@ ${PLUGIN_ROOT}/scripts/py ${PLUGIN_ROOT}/scripts/verify_legal_factuality.py --he
 
 # Kiwi 형태소 기반 증거-초안 렉시컬 그라운딩 오버랩 단독 감사
 ${PLUGIN_ROOT}/scripts/py ${PLUGIN_ROOT}/scripts/korean_morph_grounding.py --source 증거_사실관계.txt --target 소장_초안.md --high-fidelity --json
+
+# 법원 제출용 범죄일람표·청취검토 엑셀 생성, 행높이 재계산 및 G/H열 키워드 정합성 감사
+python scripts/crime_schedule_xlsx.py --from-json schedule_rows.json -o 범죄일람표_제출용.xlsx
+python scripts/crime_schedule_xlsx.py --recalc 범죄일람표_제출용.xlsx
+python scripts/crime_schedule_xlsx.py --audit 범죄일람표_제출용.xlsx --rule "설기=설기,설계,강아지,진돗개"
 ```
 
 - 허위 조문(예: 민법 제1500조), 미래 판례, 가짜 법원명칭, 가짜 역사 사건, 불가능한 사법 절차 인용 시 exit 1로 생성이 차단됩니다.

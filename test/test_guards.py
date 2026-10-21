@@ -866,8 +866,10 @@ class AntigravityRuntimeTranscriptPayloadTests(unittest.TestCase):
             self.assertEqual(Path(audit_entry["file"]).resolve(), bad_report.resolve())
             self.assertEqual(len(audit_entry["sha256"]), 64)
 
-            # Fix report content -> hallucination_guard passes with exit 0 and {}
-            bad_report.write_text(f"# 감정서\n\nSHA-256: {audit_entry['sha256']}\n판정: 미확인\n", encoding="utf-8")
+            # Fix report content (ground hash against an evidence file record, not self-report record) -> hallucination_guard passes with exit 0 and {}
+            with audit_log.open("a", encoding="utf-8") as af:
+                af.write(json.dumps({"file": "evidence.bin", "sha256": audit_entry["sha256"]}) + "\n")
+            bad_report.write_text(f"# 감정서\n\nevidence.bin SHA-256: {audit_entry['sha256']}\n판정: 미확인\n", encoding="utf-8")
             proc_hall_pass = run_guard("hallucination_guard.mjs", [], stdin_payload=payload, cwd=tmp)
             self.assertEqual(proc_hall_pass.returncode, 0, proc_hall_pass.stderr)
             self.assertEqual(proc_hall_pass.stdout.strip(), "{}")

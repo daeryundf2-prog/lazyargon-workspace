@@ -31,6 +31,9 @@ metadata:
    - **로컬 오디오/영상 및 구간 검증**: `local_stt.py`의 기본 엔진(`google-server`)이 `ffmpeg` 16kHz PCM 청크(25초 단위)를 `ThreadPoolExecutor`로 Google Speech-to-Text 서버(`recognize_google`, `ko-KR`)에 병렬 전송해 수 초 내에 정확하게 전사한다:
      ```bash
      ./scripts/py scripts/local_stt.py <오디오파일_또는_폴더_또는_유튜브URL> --lang ko --keywords "주요키워드"
+     python scripts/crime_schedule_xlsx.py --from-json schedule_rows.json -o 범죄일람표_청취검토.xlsx
+     python scripts/crime_schedule_xlsx.py --recalc 범죄일람표_청취검토.xlsx
+     python scripts/crime_schedule_xlsx.py --audit 범죄일람표_청취검토.xlsx --rule "쟁점어=근거어1,근거어2"
      ```
 4. **이미지 텍스트 추출 (OCR)**:
    - 이미지 또는 추출 프레임 속 텍스트는 `tesseract` CLI(기본 `kor+eng`)로 직접 추출한다:
