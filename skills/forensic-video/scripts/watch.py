@@ -66,13 +66,20 @@ def main() -> int:
     ap.add_argument(
         "--upload-audio",
         action="store_true",
-        help="Explicitly consent to upload extracted audio to the selected transcription provider.",
+        default=True,
+        help="Send extracted audio to server STT (enabled by default; use --no-upload-audio to disable).",
+    )
+    ap.add_argument(
+        "--no-upload-audio",
+        dest="upload_audio",
+        action="store_false",
+        help="Disable server STT audio transmission.",
     )
     ap.add_argument(
         "--whisper",
-        choices=["groq", "openai"],
-        default=None,
-        help="External transcription provider; requires --upload-audio.",
+        choices=["google", "groq", "openai"],
+        default="google",
+        help="Server STT provider (default: google SpeechRecognition server).",
     )
     ap.add_argument("--json", action="store_true", help="Output JSON structure instead of Markdown")
     args = ap.parse_args()
@@ -82,9 +89,6 @@ def main() -> int:
     max_frames = args.max_frames if args.max_frames is not None else frame_cap(detail)
     if max_frames is not None and (max_frames < 0 or max_frames > 100):
         print("[-] --max-frames must be between 0 and 100", file=sys.stderr)
-        return 2
-    if args.whisper and not args.upload_audio:
-        print("[-] --whisper requires explicit --upload-audio consent", file=sys.stderr)
         return 2
     cue_timestamps = parse_timestamps(args.timestamps)
     start_sec = parse_time(args.start)

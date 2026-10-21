@@ -166,8 +166,22 @@ class LocalSttTests(unittest.TestCase):
     def test_engine_detection_returns_known_or_none(self):
         eng = local_stt.detect_engine()
         self.assertTrue(eng is None or eng in
-                        ("faster-whisper", "openai-whisper", "sensevoice", "moonshine")
+                        ("google-server", "youtube-subs", "faster-whisper", "openai-whisper", "sensevoice", "moonshine")
                         or eng.startswith("binary:") or eng.startswith("binary-sensevoice:"))
+
+    def test_vtt_segment_parse(self):
+        vtt = (
+            "WEBVTT\n\n"
+            "00:00:01.000 --> 00:00:03.500\n"
+            "<c>안녕하세요</c> 테스트입니다\n\n"
+            "00:00:03.500 --> 00:00:05.000\n"
+            "안녕하세요 테스트입니다\n"
+            "두 번째 문장\n"
+        )
+        segs = local_stt.parse_vtt_segments(vtt)
+        self.assertEqual(len(segs), 2)
+        self.assertEqual(segs[0]["text"], "안녕하세요 테스트입니다")
+        self.assertEqual(segs[1]["text"], "두 번째 문장")
 
     def test_sensevoice_tag_parse(self):
         raw = "<|ko|><|ANGRY|><|Speech|><|withitn|>돈 안 갚으면 가만 안 둬 <|SIGH|>"

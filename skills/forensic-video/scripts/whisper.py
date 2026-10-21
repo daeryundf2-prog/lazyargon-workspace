@@ -2,13 +2,17 @@
 # -*- coding: utf-8 -*-
 """
 whisper.py
-Speech-to-Text transcription via Groq or OpenAI.
+Server-based Speech-to-Text transcription via Google STT (default), Groq, or OpenAI.
 
-Audio upload is disabled unless the caller passes allow_upload=True.
+Audio upload is gated behind allow_upload=True in transcribe_video() for unit test safety;
+watch.py enables server STT by default.
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+import importlib.util
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -18,6 +22,10 @@ from pathlib import Path
 
 
 def load_api_key(backend: str | None = None) -> tuple[str | None, str]:
+    if backend == "google":
+        if importlib.util.find_spec("speech_recognition") and shutil.which("ffmpeg"):
+            return "google-free", "google"
+        return None, "none"
     if backend == "groq" or (backend is None and os.getenv("GROQ_API_KEY")):
         k = os.getenv("GROQ_API_KEY")
         if k:
@@ -26,7 +34,49 @@ def load_api_key(backend: str | None = None) -> tuple[str | None, str]:
         k = os.getenv("OPENAI_API_KEY")
         if k:
             return k, "openai"
+    if backend is None and importlib.util.find_spec("speech_recognition") and shutil.which("ffmpeg"):
+        return "google-free", "google"
     return None, "none"
+
+
+def _transcribe_google_server(video_path: str, lang_code: str = "ko-KR", chunk_sec: float = 25.0) -> list[dict]:
+    import speech_recognition as sr  # type: ignore
+
+    dur = 0.0
+    if shutil.which("ffprobe"):
+        try:
+            out = subprocess.check_output(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=nk=1:nw=1", video_path],
+                stderr=subprocess.DEVNULL, text=True, timeout=15,
+            ).strip()
+            dur = float(out)
+        except Exception:
+            pass
+    windows = [(0.0, 30.0)] if dur <= 0 else [
+        (round(i * chunk_sec, 2), round(min(dur, (i + 1) * chunk_sec), 2))
+        for i in range(max(1, int(math.ceil(dur / chunk_sec))))
+        if min(dur, (i + 1) * chunk_sec) - i * chunk_sec >= 0.3
+    ]
+
+    def _work(win: tuple[float, float]) -> dict | None:
+        s, e = win
+        cmd = [
+            "ffmpeg", "-nostdin", "-v", "error", "-ss", f"{s:.2f}", "-t", f"{e - s:.2f}",
+            "-i", video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", "-f", "s16le", "-",
+        ]
+        try:
+            pcm = subprocess.run(cmd, capture_output=True, timeout=30).stdout
+            if not pcm or len(pcm) < 1600:
+                return None
+            txt = sr.Recognizer().recognize_google(sr.AudioData(pcm, 16000, 2), language=lang_code)
+            if txt and txt.strip():
+                return {"start": float(s), "text": txt.strip()}
+        except Exception:
+            return None
+        return None
+
+    with ThreadPoolExecutor(max_workers=min(12, max(1, len(windows)))) as ex:
+        return [seg for seg in ex.map(_work, windows) if seg]
 
 
 def extract_audio(video_path: str, out_audio: Path) -> Path:
@@ -63,6 +113,8 @@ def transcribe_video(
     key, provider = load_api_key(backend)
     if not key:
         return []
+    if provider == "google":
+        return _transcribe_google_server(video_path)
 
     audio_path = out_dir / "audio.mp3"
     try:

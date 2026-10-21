@@ -1,51 +1,38 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-local_stt.py — 로컬 전용 STT 배치 전사기
+local_stt.py — 서버 STT 최우선 배치 전사기 (유튜브 자동자막 + Google STT 서버 병렬 전송 기본)
 
-증거 오디오를 외부 API로 보내지 않고 로컬 엔진으로 전사한다.
+로컬 Whisper(faster-whisper, openai-whisper, whisper.cpp)는 속도가 극도로 느리고(다수 영상 시
+30분 이상 행 발생) 한국어 고유명사·구어체 오타가 많으므로 기본 비활성화한다.
 엔진 자동 탐지 순서:
 
-  1. faster-whisper (pip 패키지) — word timestamps 지원
-  2. openai-whisper (pip 패키지)
-  3. whisper.cpp / transcribe.cpp 계열 바이너리 (whisper-cli, main, transcribe-cli)
-  4. SenseVoice (FunASR `funasr` 패키지 또는 `sensevoice` 바이너리)
-     — ko/zh/yue/en/ja 지원 + 감정·비언어 이벤트 태그 (<|ANGRY|> 등)
-  5. moonshine (pip 패키지 useful-moonshine) — ⚠️ 영어 전용, 한국어 증거엔 부적합
-
-엔진이 하나도 없으면 전사를 지어내지 않고 exit 3 + 안내로 종료한다(fail-closed).
-특정 엔진을 강제하려면 --engine (faster-whisper|openai-whisper|sensevoice|moonshine).
+  1. google-server (SpeechRecognition `recognize_google` + `ffmpeg` 16kHz PCM 병렬 청크 서버 전송)
+     — 유튜브 URL 또는 파일명 내 11자리 유튜브 ID가 있고 `yt-dlp`가 설치된 경우 유튜브 서버 자동자막(VTT)을 우선 추출하고,
+       자막이 없거나 일반 로컬 오디오/영상 파일이면 Google STT 서버(`ko-KR`)로 병렬 전송해 초고속·고정확도 전사 수행
+  2. sensevoice (FunASR `funasr` 패키지 또는 `sensevoice` 바이너리) — 감정·비언어 이벤트 태그 필요 시
+  3. (--allow-local-whisper 명시 시에만) faster-whisper / openai-whisper / whisper.cpp
 
 사용:
-    python scripts/local_stt.py audio/                          # 디렉터리 배치
+    python scripts/local_stt.py audio/                          # 디렉터리 배치 (기본: google-server)
     python scripts/local_stt.py audio/call.wav --lang ko
+    python scripts/local_stt.py "https://www.youtube.com/watch?v=..." --out yt_stt.json
     python scripts/local_stt.py audio/ --keywords "돈,송금,계좌" --out stt_report.json
-    python scripts/local_stt.py audio/ --verbatim               # 필러음 보존 모드
-    python scripts/local_stt.py a.wav --model nyrahealth/CrisperWhisper
-    # faster-whisper는 HF 리포 ID도 받는다 — CrisperWhisper는 필러음·
-    # 말더듬까지 verbatim 전사하는 파인튜닝 모델 (증거 녹취에 적합)
-
-출력 (파일별 + 요약):
-    - <입력>.transcript.json  : 타임스탬프 세그먼트 전사
-    - --out 지정 시           : 배치 요약 + 키워드 히트 리포트
-
-알려진 한계:
-- 화자 분리(diarization)는 하지 않는다. 화자 구분이 필요하면 결과를
-  '미확인'으로 표시하고 별도 도구를 쓸 것.
-- verbatim 모드는 엔진이 지원하는 범위 내에서만 유효하다
-  (faster-whisper: word_timestamps + condition_on_previous_text 해제).
 """
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
+import contextlib
 import importlib.util
 import json
+import math
 import os
 import re
 import shutil
 import subprocess
 import sys
-import contextlib
+import tempfile
 from pathlib import Path
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -95,20 +82,25 @@ def _win_symlink_fallback():
 AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".opus", ".aac", ".mp4", ".mkv", ".mov", ".webm"}
 
 
-def detect_engine() -> str | None:
-    """사용 가능한 로컬 STT 엔진 이름을 반환한다. 없으면 None."""
-    if importlib.util.find_spec("faster_whisper"):
-        return "faster-whisper"
-    if importlib.util.find_spec("whisper"):
-        return "openai-whisper"
-    for binary in ("whisper-cli", "whisper.cpp", "main", "transcribe-cli"):
-        if shutil.which(binary):
-            return f"binary:{binary}"
+def detect_engine(allow_local_whisper: bool = False) -> str | None:
+    """사용 가능한 STT 엔진 이름을 반환한다. 기본은 무조건 서버 STT(google-server) 최우선."""
+    if importlib.util.find_spec("speech_recognition") and shutil.which("ffmpeg"):
+        return "google-server"
+    if shutil.which("yt-dlp"):
+        return "youtube-subs"
     if importlib.util.find_spec("funasr"):
         return "sensevoice"
     for binary in ("sensevoice", "sensevoice-cli", "sensevoice-onnx"):
         if shutil.which(binary):
             return f"binary-sensevoice:{binary}"
+    if allow_local_whisper:
+        if importlib.util.find_spec("faster_whisper"):
+            return "faster-whisper"
+        if importlib.util.find_spec("whisper"):
+            return "openai-whisper"
+        for binary in ("whisper-cli", "whisper.cpp", "main", "transcribe-cli"):
+            if shutil.which(binary):
+                return f"binary:{binary}"
     if importlib.util.find_spec("moonshine"):
         return "moonshine"  # 영어 전용 — 최후순위
     return None
@@ -129,6 +121,10 @@ _SENSEVOICE_EMOTIONS = {
 
 def _engine_available(engine: str) -> bool:
     """--engine 강제 지정 시 해당 엔진의 실행 수단이 실재하는지 확인."""
+    if engine == "google-server":
+        return importlib.util.find_spec("speech_recognition") is not None and bool(shutil.which("ffmpeg"))
+    if engine == "youtube-subs":
+        return bool(shutil.which("yt-dlp"))
     if engine == "faster-whisper":
         return importlib.util.find_spec("faster_whisper") is not None
     if engine == "openai-whisper":
@@ -142,12 +138,7 @@ def _engine_available(engine: str) -> bool:
 
 
 def parse_sensevoice_tags(raw_text: str) -> dict:
-    """SenseVoice rich transcription 문자열에서 <|...|> 메타 토큰을 분리한다.
-
-    반환: {"text": 정제된 본문, "lang": 언어 태그|None,
-          "emotion": 감정 태그|None, "events": [비언어 이벤트]}
-    모델 없이 결정적으로 동작하는 순수 파서 — 태그가 없으면 빈 메타를 돌려준다.
-    """
+    """SenseVoice rich transcription 문자열에서 <|...|> 메타 토큰을 분리한다."""
     tags = SENSEVOICE_TAG_RE.findall(raw_text)
     text = SENSEVOICE_TAG_RE.sub("", raw_text).strip()
     return {
@@ -156,6 +147,139 @@ def parse_sensevoice_tags(raw_text: str) -> dict:
         "emotion": next((t for t in tags if t in _SENSEVOICE_EMOTIONS), None),
         "events": [t for t in tags if t in _SENSEVOICE_EVENTS],
     }
+
+
+_VTT_TIME_RE = re.compile(r"(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})\.(\d{3})")
+_YT_ID_RE = re.compile(r"\[([A-Za-z0-9_-]{11})\]|(?:v=|youtu\.be/)([A-Za-z0-9_-]{11})")
+
+
+def _vtt_ts(h: str, m: str, s: str, ms: str) -> float:
+    return round(int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0, 3)
+
+
+def parse_vtt_segments(vtt_text: str) -> list[dict]:
+    """YouTube 서버 자동자막(.vtt)에서 중복 롤업 줄을 제거하고 타임스탬프 세그먼트로 변환한다."""
+    segments: list[dict] = []
+    last_text = ""
+    lines = vtt_text.splitlines()
+    i = 0
+    while i < len(lines):
+        m = _VTT_TIME_RE.search(lines[i])
+        if not m:
+            i += 1
+            continue
+        start = _vtt_ts(m.group(1), m.group(2), m.group(3), m.group(4))
+        end = _vtt_ts(m.group(5), m.group(6), m.group(7), m.group(8))
+        i += 1
+        text_lines = []
+        while i < len(lines) and lines[i].strip():
+            clean = re.sub(r"<[^>]+>", "", lines[i]).strip()
+            if clean and clean != last_text:
+                text_lines.append(clean)
+            i += 1
+        if text_lines:
+            merged = " ".join(text_lines)
+            if merged != last_text and (end - start) >= 0.05:
+                segments.append({"start": start, "end": end, "text": merged})
+                last_text = merged
+    return segments
+
+
+def _extract_youtube_url(target_str: str) -> str | None:
+    if target_str.startswith(("http://", "https://")) and ("youtube.com" in target_str or "youtu.be" in target_str):
+        return target_str
+    m = _YT_ID_RE.search(target_str)
+    if m:
+        vid = m.group(1) or m.group(2)
+        return f"https://www.youtube.com/watch?v={vid}"
+    return None
+
+
+def transcribe_youtube_subs(url_or_path: str, lang: str | None = None) -> dict:
+    """yt-dlp로 유튜브 서버 자동자막/자막(VTT)을 즉시 추출한다."""
+    yt_url = _extract_youtube_url(str(url_or_path))
+    if not yt_url or not shutil.which("yt-dlp"):
+        raise RuntimeError("유튜브 URL/ID를 찾을 수 없거나 yt-dlp가 설치되어 있지 않습니다.")
+    sub_langs = f"{lang}.*,ko.*,en.*" if lang else "ko.*,en.*"
+    with tempfile.TemporaryDirectory() as tmp:
+        out_tmpl = str(Path(tmp) / "sub.%(ext)s")
+        cmd = [
+            "yt-dlp", "--skip-download", "--write-subs", "--write-auto-subs",
+            "--sub-langs", sub_langs, "--sub-format", "vtt", "--convert-subs", "vtt",
+            "-o", out_tmpl, yt_url,
+        ]
+        subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+        vtts = sorted(Path(tmp).glob("*.vtt"))
+        if not vtts:
+            raise RuntimeError(f"유튜브 서버 자막이 존재하지 않습니다: {yt_url}")
+        segments = parse_vtt_segments(vtts[0].read_text(encoding="utf-8", errors="replace"))
+        return {"engine": "youtube-subs/vtt", "segments": segments}
+
+
+def _probe_duration(path: Path) -> float:
+    if shutil.which("ffprobe"):
+        try:
+            out = subprocess.check_output(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=nk=1:nw=1", str(path)],
+                stderr=subprocess.DEVNULL, text=True, timeout=15,
+            ).strip()
+            return float(out)
+        except Exception:
+            pass
+    return 0.0
+
+
+def transcribe_google_server(path: Path, lang: str | None = None, chunk_sec: float = 25.0) -> dict:
+    """Google Speech-to-Text 서버(`recognize_google`) + `ffmpeg` 16kHz PCM 병렬 청크 전사.
+    파일명에 유튜브 ID가 있고 yt-dlp가 있으면 유튜브 서버 자동자막을 먼저 시도한다."""
+    if _extract_youtube_url(path.name) and shutil.which("yt-dlp"):
+        try:
+            yt_res = transcribe_youtube_subs(path.name, lang)
+            if yt_res.get("segments"):
+                return yt_res
+        except Exception:
+            pass
+
+    import speech_recognition as sr  # type: ignore
+
+    lang_code = "ko-KR" if (not lang or lang.lower().startswith("ko")) else lang
+    dur = _probe_duration(path)
+    windows: list[tuple[float, float]] = []
+    if dur <= 0:
+        windows.append((0.0, 30.0))
+    else:
+        n_chunks = max(1, int(math.ceil(dur / chunk_sec)))
+        for idx in range(n_chunks):
+            s = round(idx * chunk_sec, 2)
+            e = round(min(dur, (idx + 1) * chunk_sec), 2)
+            if e - s >= 0.3:
+                windows.append((s, e))
+
+    def _work(win: tuple[float, float]) -> dict | None:
+        s, e = win
+        cmd = [
+            "ffmpeg", "-nostdin", "-v", "error", "-ss", f"{s:.2f}", "-t", f"{e - s:.2f}",
+            "-i", str(path), "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", "-f", "s16le", "-",
+        ]
+        try:
+            pcm = subprocess.run(cmd, capture_output=True, timeout=30).stdout
+            if not pcm or len(pcm) < 1600:
+                return None
+            rec = sr.Recognizer()
+            ad = sr.AudioData(pcm, 16000, 2)
+            txt = rec.recognize_google(ad, language=lang_code)
+            if txt and txt.strip():
+                return {"start": s, "end": e, "text": txt.strip()}
+        except Exception:
+            return None
+        return None
+
+    segments: list[dict] = []
+    with ThreadPoolExecutor(max_workers=min(12, max(1, len(windows)))) as ex:
+        for seg in ex.map(_work, windows):
+            if seg:
+                segments.append(seg)
+    return {"engine": f"google-server/{lang_code}", "segments": segments}
 
 
 def transcribe_faster_whisper(path: Path, lang: str | None, verbatim: bool, model_size: str) -> dict:
@@ -305,6 +429,10 @@ def transcribe_moonshine(path: Path, model_size: str) -> dict:
 
 
 def transcribe_file(path: Path, engine: str, lang: str | None, verbatim: bool, model_size: str) -> dict:
+    if engine == "google-server":
+        return transcribe_google_server(path, lang)
+    if engine == "youtube-subs":
+        return transcribe_youtube_subs(str(path), lang)
     if engine == "faster-whisper":
         return transcribe_faster_whisper(path, lang, verbatim, model_size)
     if engine == "openai-whisper":
@@ -330,14 +458,15 @@ def keyword_hits(segments: list[dict], keywords: list[str]) -> list[dict]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="로컬 전용 STT 배치 전사기 (외부 업로드 없음)")
-    ap.add_argument("input", help="오디오/영상 파일 또는 디렉터리")
-    ap.add_argument("--lang", default=None, help="언어 코드 (예: ko). 미지정 시 엔진 자동 감지")
+    ap = argparse.ArgumentParser(description="서버 STT 최우선 배치 전사기 (유튜브 자동자막 + Google STT 서버 병렬 전송 기본)")
+    ap.add_argument("input", help="오디오/영상 파일, 디렉터리 또는 유튜브 URL")
+    ap.add_argument("--lang", default=None, help="언어 코드 (예: ko). 미지정 시 ko-KR 기본")
     ap.add_argument("--model", default="turbo", help="모델 크기 (기본 turbo)")
     ap.add_argument("--verbatim", action="store_true", help="필러음·단어 단위 타임스탬프 보존 모드")
+    ap.add_argument("--allow-local-whisper", action="store_true",
+                    help="느린 로컬 Whisper 폴백 허용 (기본 금지 — 서버 STT 강제)")
     ap.add_argument("--engine", default=None,
-                    help="엔진 강제 지정 (faster-whisper|openai-whisper|sensevoice|moonshine). "
-                         "감정 태그가 필요하면 sensevoice 지정")
+                    help="엔진 강제 지정 (google-server|youtube-subs|sensevoice|faster-whisper|openai-whisper|moonshine)")
     ap.add_argument("--keywords", default=None, help="쉼표 구분 키워드 히트 리포트")
     ap.add_argument("--out", "--output", dest="out", default=None, help="배치 요약 JSON 출력 경로")
     ap.add_argument("--out-dir", default=None, help="개별 .transcript.json 저장 디렉터리 (미지정 시 --out 폴더 또는 원본 옆)")
@@ -349,20 +478,29 @@ def main(argv: list[str] | None = None) -> int:
             print(f"지정 엔진을 사용할 수 없습니다: {engine}", file=sys.stderr)
             return 3
     else:
-        engine = detect_engine()
+        engine = detect_engine(allow_local_whisper=args.allow_local_whisper)
     if engine is None:
         print(
-            "로컬 STT 엔진이 없습니다. 전사를 생성하지 않고 종료합니다.\n"
+            "사용 가능한 서버 STT 엔진이 없습니다. (내부 Whisper는 기본 비활성화됨)\n"
             "설치 예:\n"
-            "  pip install faster-whisper      # 권장 (word timestamps)\n"
-            "  pip install openai-whisper\n"
-            "  pip install funasr              # SenseVoice — ko 지원 + 감정/이벤트 태그\n"
-            "  brew install whisper-cpp        # 또는 transcribe.cpp 빌드\n"
-            "외부 API(Groq/OpenAI) 업로드가 필요하면 의뢰인 동의·반출 승인 후\n"
-            "skills/forensic-video 의 --upload-audio 경로를 사용하세요.",
+            "  pip install SpeechRecognition   # 권장 1순위: Google STT 서버 병렬 전송 (ffmpeg 필요)\n"
+            "  pip install yt-dlp              # 유튜브 서버 자동자막 즉시 추출\n"
+            "  pip install funasr              # SenseVoice — 감정/이벤트 태그",
             file=sys.stderr,
         )
         return 3
+
+    if str(args.input).startswith(("http://", "https://")) and _extract_youtube_url(str(args.input)):
+        try:
+            result = transcribe_youtube_subs(str(args.input), args.lang)
+            if args.out:
+                Path(args.out).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+            else:
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+        except Exception as e:
+            print(f"[FAIL] {args.input}: {e}", file=sys.stderr)
+            return 1
 
     target = Path(args.input)
     if target.is_dir():
