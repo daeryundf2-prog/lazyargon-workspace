@@ -384,8 +384,20 @@ function isPluginInternalDoc(targetFile) {
 	}
 }
 
+const AGENT_INTERNAL_FILE_RE = /^(pins\.md|ulw-scope\.md|scope\.md|brief\.md|claim-graph\.md|sources-ledger\.md|expansion-log\.md|intent-diff\.md|observation-manifest\.md|debate-log\.md|verification-economics\.md|cause-disappearance\.md|excursion-log\.md|design-spec\.md|outcome\.json|audit\.json|audit_trail\.jsonl|processing_receipt\.json)$/i;
+
+function isAgentInternalFile(targetFile) {
+	if (!targetFile) return false;
+	const norm = targetFile.replace(/\\/g, '/');
+	if (/(?:^|\/)\.lazyargon\//i.test(norm) || /(?:^|\/)\.omo\//i.test(norm) || /(?:^|\/)\.lazyforensic\//i.test(norm)) {
+		return true;
+	}
+	const base = path.basename(targetFile);
+	return AGENT_INTERNAL_FILE_RE.test(base);
+}
+
 function shouldGuard(targetFile, rawTexts) {
-	if (isPluginInternalDoc(targetFile)) return false;
+	if (isPluginInternalDoc(targetFile) || isAgentInternalFile(targetFile)) return false;
 	const keywordHit = GUARD_KEYWORD_RE.test(rawTexts.join('\n'));
 	const reportExt = /\.(md|html|txt)$/i.test(targetFile);
 	// 경로 힌트는 basename에만 적용 — 디렉터리명/부분문자열 오탐 방지.

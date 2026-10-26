@@ -408,6 +408,32 @@ class HallucinationGuardTests(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertNotIn("timeline 근거 파일 미발견", proc.stderr)
 
+    def test_hallucination_guard_skips_agent_internal_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lazy_dir = Path(tmp) / ".lazyargon"
+            lazy_dir.mkdir(parents=True, exist_ok=True)
+            pins_file = lazy_dir / "pins.md"
+            pins_file.write_text(
+                "# Context Pins\n\n"
+                "- File Hash: 22ee79ef2b8c7ff5dfd6365c0565b92c4f793d8445284ef91c379fff4053ac16\n"
+                "- Case: 2026-고합-1024\n"
+                "- Notes: 명백히 증명된 사실관계 요약\n",
+                encoding="utf-8",
+            )
+            payload = json.dumps({
+                "tool_input": {
+                    "file_path": str(pins_file),
+                    "content": "보고서 작성 전 핀 고정",
+                }
+            })
+            proc = subprocess.run(
+                ["node", str(ROOT / "scripts" / "hallucination_guard.mjs")],
+                input=payload,
+                capture_output=True, text=True, encoding="utf-8", cwd=tmp,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertNotIn("보고서 검증 FAIL", proc.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

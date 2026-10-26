@@ -48,6 +48,9 @@ OpenCode `task(...)`, `model_tier`, `subagent_type`, Cursor `Task`, `view_file`�
 - **커버리지 주장은 감사 수신증으로만**: "전수/100% 커버리지" 결론은 `node scripts/coverage_audit.mjs --source <원문파일> --target <산출물…> --json <수신증.json>` 출력으로만 뒷받침한다(`--source` 필수, 원문 행→산출 위치 매핑 기록).
 - **부모 검증**: `forensic-report` 초안은 `Model: "inherit"`가 `python scripts/verify_report.py <보고서> --evidence <audit.json> --morph-grounding --high-fidelity`로 재검증한다 (`verify_report.py` 출력이 최종 판정 권한). `FAIL`이면 제출 금지.
 - **High-Fidelity 비파라메트릭 모드**: 포렌식 보고서 작성 시 `verify_report.py`에 `--high-fidelity`를 강제하며, 원본 증거와 `<evidence>` 태그 누락 또는 형태소 커버리지 70% 미달 시 즉시 차단한다.
+- **에이전트 메타 파일 가드 제외**: `.lazyargon/pins.md`, `.lazyargon/ulw-scope.md`, `claim-graph.md` 등 오케스트레이션·핀 파일은 `hallucination_guard.mjs` 검증 대상에서 제외되며 보고서·감정서 본문만 검증한다.
+- **안전 필터 무한루프 차단 및 모델 유보**: agy 1.4.4+에서 안전 필터 무한 무음 재시도가 차단되었으므로, 필터 발동 시 재요청 없이 `미확인(모델 유보: 안전 필터)`로 기록하고 다음 단계로 즉시 진행한다.
+- **암시적 캐시 보존**: 6,144토큰 이상 95% 캐시 할인을 유지하기 위해 시스템 규칙과 증거 원문 접두사는 상단에 고정하고 가변 메타데이터는 최하단에 배치한다.
 
 ## 스킬 라우팅
 
