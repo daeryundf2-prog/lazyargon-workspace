@@ -82,11 +82,14 @@ function resolveTranscriptPaths(payload) {
 	};
 	const tp = payload.transcriptPath || payload.transcript_path || '';
 	if (typeof tp === 'string' && tp.trim()) {
-		add(tp);
 		if (/transcript\.jsonl$/i.test(tp) && !/transcript_full\.jsonl$/i.test(tp)) {
 			add(tp.replace(/transcript\.jsonl$/i, 'transcript_full.jsonl'));
+			add(tp);
 		} else if (/transcript_full\.jsonl$/i.test(tp)) {
+			add(tp);
 			add(tp.replace(/transcript_full\.jsonl$/i, 'transcript.jsonl'));
+		} else {
+			add(tp);
 		}
 	}
 	const adp = payload.artifactDirectoryPath || payload.artifact_directory_path || '';
@@ -122,6 +125,24 @@ function extractLastAssistantMessageFromTranscript(transcriptContent) {
 	return '';
 }
 
+function readTailContent(filePath, maxBytes = 512 * 1024) {
+	const stat = fs.statSync(filePath);
+	if (stat.size <= maxBytes) {
+		return fs.readFileSync(filePath, 'utf8');
+	}
+	const fd = fs.openSync(filePath, 'r');
+	try {
+		const buf = Buffer.allocUnsafe(maxBytes);
+		fs.readSync(fd, buf, 0, maxBytes, stat.size - maxBytes);
+		const nlIdx = buf.indexOf(0x0a);
+		return (nlIdx >= 0 ? buf.subarray(nlIdx + 1) : buf).toString('utf8');
+	} finally {
+		fs.closeSync(fd);
+	}
+}
+
+const NORMAL_STOP_REASONS = new Set(['NO_TOOL_CALL', 'model_stop']);
+
 async function main() {
 	let payload;
 	try {
@@ -135,7 +156,19 @@ async function main() {
 		process.stdout.write('{}\n');
 		process.exit(0);
 	}
-	if (payload.stop_hook_active === true) {
+	if (
+		payload.stop_hook_active === true ||
+		(typeof payload.executionNum === 'number' && payload.executionNum >= 2) ||
+		payload.fullyIdle === false
+	) {
+		process.stdout.write('{}\n');
+		process.exit(0);
+	}
+	if (
+		typeof payload.terminationReason === 'string' &&
+		payload.terminationReason &&
+		!NORMAL_STOP_REASONS.has(payload.terminationReason)
+	) {
 		process.stdout.write('{}\n');
 		process.exit(0);
 	}
@@ -144,7 +177,7 @@ async function main() {
 	const transcriptPaths = resolveTranscriptPaths(payload);
 	for (const tp of transcriptPaths) {
 		try {
-			transcriptContent = fs.readFileSync(tp, 'utf8');
+			transcriptContent = readTailContent(tp, 512 * 1024);
 			if (transcriptContent) break;
 		} catch {
 			// continue

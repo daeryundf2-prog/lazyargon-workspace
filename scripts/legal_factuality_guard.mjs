@@ -59,7 +59,7 @@ async function collectSources() {
 	return sources;
 }
 
-const WRITE_OR_CMD_TOOL_RE = /^(write_to_file|replace_file_content|multi_replace_file_content|run_command|WriteToFile|ReplaceFileContent|MultiReplaceFileContent|RunCommand|write_file|Write|Edit|MultiEdit|SearchReplace|StrReplace|Bash|bash|Shell|shell|execute_command)$/i;
+const WRITE_OR_CMD_TOOL_RE = /^(write_to_file|replace_file_content|multi_replace_file_content|run_command|WriteToFile|ReplaceFileContent|MultiReplaceFileContent|RunCommand|write_file|WriteFile|edit_file|EditFile|Write|Edit|MultiEdit|SearchReplace|StrReplace|Bash|bash|Shell|shell|execute_command)$/i;
 const TARGET_KEY_RE = /^(file_path|filepath|path|target|target_file|targetfile|target_path|targetpath|output|file|filename)$/i;
 const PATH_LIKE_RE = /([^\s"'`<>|;&]+[\/\\][^\s"'`<>|;&]+\.(?:md|html|txt|json))/i;
 const REDIRECT_RE = /(?:>|>>)\s*([^\s|&;]+(?:\.(?:md|html|txt|json)))/i;
@@ -133,9 +133,9 @@ function extractToolDataFromCall(tc) {
 		return "";
 	};
 
-	let targetFile = getStr("TargetFile", "target_file", "file_path", "filepath", "path", "target", "target_path", "targetpath", "output", "file", "filename");
+	let targetFile = getStr("TargetFile", "target_file", "file_path", "filepath", "Path", "path", "target", "target_path", "targetpath", "output", "file", "filename");
 	const commandLine = getStr("CommandLine", "command_line", "command", "cmd", "script");
-	let codeContent = getStr("CodeContent", "code_content", "ReplacementContent", "replacement_content", "content", "new_string", "text");
+	let codeContent = getStr("CodeContent", "code_content", "ReplacementContent", "replacement_content", "Content", "content", "Replacement", "replacement", "new_string", "text");
 	if (!codeContent && rawArgs.ReplacementChunks !== undefined) {
 		let chunks = rawArgs.ReplacementChunks;
 		if (typeof chunks === "string") {

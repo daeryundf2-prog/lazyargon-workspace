@@ -8,12 +8,10 @@ import { stdin } from "node:process";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const SCOPE_FILE = join(process.cwd(), ".lazyargon", "ulw-scope.md");
 const SCOPE_MAX_LINES = 12;
-const PINS_FILE = join(process.cwd(), ".lazyargon", "pins.md");
 const PINS_MAX_LINES = 20;
 
-function readStdin(limitMs) {
+function readStdin(limitMs = 200) {
 	return new Promise((resolve) => {
 		if (stdin.isTTY) {
 			resolve("");
@@ -44,6 +42,14 @@ function parsePayload(raw) {
 	} catch {
 		return {};
 	}
+}
+
+export function resolveWorkspaceCwd(payload = {}) {
+	return (
+		(Array.isArray(payload?.workspacePaths) && typeof payload.workspacePaths[0] === "string" && payload.workspacePaths[0].trim()) ||
+		(typeof payload?.cwd === "string" && payload.cwd.trim()) ||
+		process.cwd()
+	);
 }
 
 function hookEventName(payload) {
@@ -92,8 +98,8 @@ function headOf(file, maxLines) {
 	}
 }
 
-const scopeLock = () => headOf(SCOPE_FILE, SCOPE_MAX_LINES);
-const pins = () => headOf(PINS_FILE, PINS_MAX_LINES);
+const scopeLock = (cwd = process.cwd()) => headOf(join(cwd, ".lazyargon", "ulw-scope.md"), SCOPE_MAX_LINES);
+const pins = (cwd = process.cwd()) => headOf(join(cwd, ".lazyargon", "pins.md"), PINS_MAX_LINES);
 
 function guardPackVersion() {
 	try {
@@ -105,26 +111,29 @@ function guardPackVersion() {
 	}
 }
 
-function additionalContext(payload) {
+export function additionalContext(payload = {}) {
 	try {
-		const gemini = readFileSync(join(root, "GEMINI.md"), "utf8").replace(/\r\n/g, "\n").trim();
+		const cwd = resolveWorkspaceCwd(payload);
 		const model = sessionModel(payload);
-		const runtime = [
+		return [
+			"# LazyForensic — 런타임 요약 (상세 규칙은 rules/GEMINI.md 로더 주입)",
+			"불변식 요약: 실패 폐쇄 · 호스트 `Read` · `invoke_subagent` · 증거 오디오 외부 전송 금지",
+			"",
 			"## 런타임",
 			"",
+			`워크스페이스: ${cwd}`,
 			`korean_law: ${koreanLawStatus()}`,
 			`세션 모델: ${model}${model === "unknown" ? " (호스트 미보고 — Argon이라고 가정하지 말 것)" : ""}`,
 			`가드 팩: ${guardPackVersion()}`,
 			"",
 			"### 범위 잠금 (.lazyargon/ulw-scope.md)",
 			"",
-			scopeLock(),
+			scopeLock(cwd),
 			"",
 			"### 고정 식별자 (.lazyargon/pins.md — 해시·경로·사건번호는 기억 대신 이 값과 원본을 쓴다)",
 			"",
-			pins(),
+			pins(cwd),
 		].join("\n");
-		return `${gemini}\n\n${runtime}`;
 	} catch {
 		return "";
 	}
@@ -132,7 +141,7 @@ function additionalContext(payload) {
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isMain) {
-	const raw = await readStdin(250);
+	const raw = await readStdin(200);
 	const payload = parsePayload(raw);
 	const context = additionalContext(payload);
 	if (context) {

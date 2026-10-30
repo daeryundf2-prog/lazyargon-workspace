@@ -72,6 +72,7 @@ function extractTargetFromNode(node, out) {
 	if (!node || typeof node !== 'object') return;
 	for (const [key, value] of Object.entries(node)) {
 		if (typeof value === 'string' && value) {
+			if (key === 'Target' && ('Path' in node || 'Replacement' in node)) continue;
 			if (TARGET_KEY_RE.test(key)) out.push({ value, isCommand: false });
 			else if (/^(command|cmd|command_line|commandline|script|args)$/i.test(key)) out.push({ value, isCommand: true });
 		} else if (value && typeof value === 'object') {
@@ -80,7 +81,7 @@ function extractTargetFromNode(node, out) {
 	}
 }
 
-const WRITE_OR_CMD_TOOL_RE = /^(write_to_file|replace_file_content|multi_replace_file_content|run_command|WriteToFile|ReplaceFileContent|MultiReplaceFileContent|RunCommand|write_file|Write|Edit|MultiEdit|SearchReplace|StrReplace|Bash|bash|Shell|shell|execute_command)$/i;
+const WRITE_OR_CMD_TOOL_RE = /^(write_to_file|replace_file_content|multi_replace_file_content|run_command|WriteToFile|ReplaceFileContent|MultiReplaceFileContent|RunCommand|write_file|WriteFile|edit_file|EditFile|apply_patch|Write|write|Edit|edit|MultiEdit|multi_edit|multiedit|SearchReplace|search_replace|StrReplace|str_replace|Bash|bash|Shell|shell|execute_command)$/i;
 
 function unquoteTranscriptVal(val) {
 	if (typeof val !== 'string') return val;
@@ -151,9 +152,9 @@ function extractToolDataFromCall(tc) {
 		return '';
 	};
 
-	let targetFile = getStr('TargetFile', 'target_file', 'file_path', 'filepath', 'path', 'target', 'target_path', 'targetpath', 'output', 'file', 'filename');
+	let targetFile = getStr('Path', 'TargetFile', 'target_file', 'file_path', 'filepath', 'path', 'target_path', 'targetpath', 'output', 'file', 'filename', 'target');
 	const commandLine = getStr('CommandLine', 'command_line', 'command', 'cmd', 'script');
-	let codeContent = getStr('CodeContent', 'code_content', 'ReplacementContent', 'replacement_content', 'content', 'new_string', 'text');
+	let codeContent = getStr('Content', 'CodeContent', 'code_content', 'Replacement', 'ReplacementContent', 'replacement_content', 'replacement', 'content', 'new_string', 'new_str', 'text', 'Target');
 	if (!codeContent && rawArgs.ReplacementChunks !== undefined) {
 		let chunks = rawArgs.ReplacementChunks;
 		if (typeof chunks === 'string') {
@@ -161,7 +162,7 @@ function extractToolDataFromCall(tc) {
 		}
 		if (Array.isArray(chunks)) {
 			codeContent = chunks
-				.map((c) => (c && typeof c === 'object' ? unquoteTranscriptVal(c.ReplacementContent || c.replacement_content || c.content || '') : ''))
+				.map((c) => (c && typeof c === 'object' ? unquoteTranscriptVal(c.ReplacementContent || c.replacement_content || c.Replacement || c.replacement || c.Content || c.content || '') : ''))
 				.filter(Boolean)
 				.join('\n');
 		}
