@@ -581,20 +581,44 @@ async function main() {
 			try {
 				// 해시체인(위변조 탐지용, HMAC 아님): 이전행 원문의 sha256을
 				// 다음행 prev_hash로 연결한다. 단일 파일(audit_trail.jsonl) 유지.
-				let prev_hash = null;
-				try {
-					if (fs.existsSync(auditLogPath)) {
-						const lines = fs.readFileSync(auditLogPath, 'utf8').split('\n').filter(Boolean);
-						if (lines.length > 0) prev_hash = crypto.createHash('sha256').update(lines[lines.length - 1], 'utf8').digest('hex');
+				const lockDir = `${auditLogPath}.lock`;
+				let locked = false;
+				const deadline = Date.now() + 3000;
+				while (Date.now() < deadline) {
+					try {
+						fs.mkdirSync(lockDir);
+						locked = true;
+						break;
+					} catch {
+						try {
+							const lstat = fs.statSync(lockDir);
+							if (Date.now() - lstat.mtimeMs > 2500) fs.rmSync(lockDir, { recursive: true, force: true });
+						} catch {}
+						Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 15);
 					}
-				} catch {}
-				entry.prev_hash = prev_hash;
-				// B2-2: LAZYFORENSIC_HMAC_KEY 있을 때만 HMAC-SHA256 서명 추가, 없으면 기존 체인 유지.
+				}
 				try {
-					const hmacKey = process.env.LAZYFORENSIC_HMAC_KEY;
-					if (hmacKey) entry.hmac = crypto.createHmac('sha256', hmacKey).update([entry.timestamp, entry.file, entry.sha256 || '', entry.prev_hash || ''].join('|'), 'utf8').digest('hex');
-				} catch {}
-				fs.appendFileSync(auditLogPath, JSON.stringify(entry) + '\n', 'utf8');
+					let prev_hash = null;
+					try {
+						if (fs.existsSync(auditLogPath)) {
+							const lines = fs.readFileSync(auditLogPath, 'utf8').split('\n').filter(Boolean);
+							if (lines.length > 0) prev_hash = crypto.createHash('sha256').update(lines[lines.length - 1], 'utf8').digest('hex');
+						}
+					} catch {}
+					entry.prev_hash = prev_hash;
+					// B2-2: LAZYFORENSIC_HMAC_KEY 있을 때만 HMAC-SHA256 서명 추가, 없으면 기존 체인 유지.
+					try {
+						const hmacKey = process.env.LAZYFORENSIC_HMAC_KEY;
+						if (hmacKey) entry.hmac = crypto.createHmac('sha256', hmacKey).update([entry.timestamp, entry.file, entry.sha256 || '', entry.prev_hash || ''].join('|'), 'utf8').digest('hex');
+					} catch {}
+					fs.appendFileSync(auditLogPath, JSON.stringify(entry) + '\n', 'utf8');
+				} finally {
+					if (locked) {
+						try {
+							fs.rmSync(lockDir, { recursive: true, force: true });
+						} catch {}
+					}
+				}
 			} catch {}
 		}
 		process.stdout.write('{}\n');

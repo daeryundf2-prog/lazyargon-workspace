@@ -443,6 +443,7 @@ async function main() {
 		const candidateRes = spawnSync(cmd, [...pre, ...verifyArgs], {
 			cwd: root,
 			encoding: "utf-8",
+			timeout: 25000,
 			windowsHide: true,
 		});
 		const isWinStoreAlias =
