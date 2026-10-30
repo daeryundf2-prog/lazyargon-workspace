@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * stop_claim_guard.mjs — Stop/SubagentStop 자기완료 선언 게이트
- * GUARD_PACK_VERSION: 1.0.0 (캐노니컬: lazyforensic/scripts — 수정 시 3레포 동기화)
+ * GUARD_PACK_VERSION: 1.0.0 (캐노니컬: lazyargon-workspace/scripts — 수정 후 scripts/sync_guard_pack.sh 로 lazyargon 에 동기화)
  *
  * 임무: 모델의 최종 메시지가 "완료/전수/100%/무결점/모두 통과" 류의 완료 선언을 하면서
  * 반증 가능한 증거(실행 명령, 테스트 수, 산출물 경로, 커밋 SHA)를 제시하지 않으면
@@ -13,7 +13,8 @@
  *     last_assistant_message?: string, ... }
  * 차단 규약: stdout 에 {"decision":"block","reason":"..."} 출력 + exit 0.
  * 모드: 기본은 observe — 차단했을 판정을 <workspace>/.lazyargon/stop-guard.jsonl 에 기록만 하고 통과시킨다.
- *   LAZYARGON_STOP_GUARD=enforce 일 때만 실제로 block 한다 (오탐률을 잰 뒤 전환).
+ *   LAZYARGON_STOP_GUARD=enforce (대소문자·양끝 공백 무시) 일 때만 실제로 block 한다 (오탐률을 잰 뒤 전환).
+ *   페이로드에 절대경로 워크스페이스가 없으면 ~/.lazyargon/stop-guard.jsonl 에 기록한다.
  *
  * 정직한 동작 규약:
  * - stop_hook_active=true (이미 재개된 턴)면 개입하지 않는다 — 무한 루프 방지.
@@ -49,6 +50,7 @@ const EVIDENCE_RE = new RegExp(
 );
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 function readStdin(limitMs) {
@@ -145,21 +147,22 @@ function readTailContent(filePath, maxBytes = 512 * 1024) {
 
 const NORMAL_STOP_REASONS = new Set(['NO_TOOL_CALL', 'model_stop']);
 
-function workspaceDir(payload) {
-	return (
-		payload.cwd ||
-		(Array.isArray(payload.workspacePaths) && typeof payload.workspacePaths[0] === 'string' ? payload.workspacePaths[0] : '') ||
-		process.cwd()
-	);
+// Observe log home: an absolute workspace from the payload, never the hook's cwd (the plugin repo).
+function observeLogBase(payload) {
+	const ws = Array.isArray(payload.workspacePaths) ? payload.workspacePaths[0] : undefined;
+	for (const c of [payload.cwd, ws]) {
+		if (typeof c === 'string' && path.isAbsolute(c)) return c;
+	}
+	return os.homedir();
 }
 
 function emitBlock(payload, reason) {
-	if (process.env.LAZYARGON_STOP_GUARD === 'enforce') {
+	if ((process.env.LAZYARGON_STOP_GUARD || '').trim().toLowerCase() === 'enforce') {
 		process.stdout.write(`${JSON.stringify({ decision: 'block', reason })}\n`);
 		process.exit(0);
 	}
 	try {
-		const dir = path.join(workspaceDir(payload), '.lazyargon');
+		const dir = path.join(observeLogBase(payload), '.lazyargon');
 		fs.mkdirSync(dir, { recursive: true });
 		const entry = {
 			ts: new Date().toISOString(),
@@ -191,7 +194,7 @@ async function main() {
 	}
 	if (
 		payload.stop_hook_active === true ||
-		(typeof payload.executionNum === 'number' && payload.executionNum >= 2) ||
+		Number(payload.executionNum) >= 2 ||
 		payload.fullyIdle === false
 	) {
 		process.stdout.write('{}\n');
@@ -199,7 +202,6 @@ async function main() {
 	}
 	if (
 		typeof payload.terminationReason === 'string' &&
-		payload.terminationReason &&
 		!NORMAL_STOP_REASONS.has(payload.terminationReason)
 	) {
 		process.stdout.write('{}\n');

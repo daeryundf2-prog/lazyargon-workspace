@@ -13,6 +13,9 @@ env/
 venv/
 .venv/
 
+# Runtime state written by hooks (stop-guard observe log, scope lock)
+.lazyargon/
+
 # OS specific
 .DS_Store
 Thumbs.db

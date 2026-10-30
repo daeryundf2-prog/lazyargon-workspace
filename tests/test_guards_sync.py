@@ -56,7 +56,7 @@ def test_stop_claim_guard_blocks_unsupported_claim():
         "hook_event_name": "Stop",
         "last_assistant_message": "법률 문서 작성을 완료했습니다.",
     })
-    proc = run_node_script("stop_claim_guard.mjs", stdin_payload=payload)
+    proc = run_node_script("stop_claim_guard.mjs", stdin_payload=payload, env={"LAZYARGON_STOP_GUARD": "enforce"})
     assert proc.returncode == 0
     data = json.loads(proc.stdout)
     assert data.get("decision") == "block"
@@ -78,7 +78,7 @@ def test_stop_claim_guard_blocks_phantom_files(tmp_path):
         "cwd": str(tmp_path),
         "last_assistant_message": "테스트 5 pass. 산출물: draft/phantom_sojang.md 생성을 완료했습니다.",
     })
-    proc = run_node_script("stop_claim_guard.mjs", stdin_payload=payload)
+    proc = run_node_script("stop_claim_guard.mjs", stdin_payload=payload, env={"LAZYARGON_STOP_GUARD": "enforce"})
     assert proc.returncode == 0
     data = json.loads(proc.stdout)
     assert data.get("decision") == "block"
