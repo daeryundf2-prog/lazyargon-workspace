@@ -20,6 +20,9 @@ ROOT = Path(__file__).resolve().parents[1]
 NODE = "node"
 
 
+ENFORCE = {"LAZYARGON_STOP_GUARD": "enforce"}
+
+
 def run_guard(script, argv=(), env=None, stdin_payload=None, cwd=None):
     e = os.environ.copy()
     if env:
@@ -276,11 +279,31 @@ class StopClaimGuardTests(unittest.TestCase):
             "hook_event_name": "Stop",
             "last_assistant_message": "모든 검증을 완벽하게 완료했습니다.",
         })
-        proc = run_guard("stop_claim_guard.mjs", [], stdin_payload=payload)
+        proc = run_guard("stop_claim_guard.mjs", [], env=ENFORCE, stdin_payload=payload)
         self.assertEqual(proc.returncode, 0)
         out = json.loads(proc.stdout)
         self.assertEqual(out.get("decision"), "block")
         self.assertIn("반증 가능한 증거", out.get("reason", ""))
+
+    def test_unsupported_grand_claim_observe_mode_logs_instead_of_blocking(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = json.dumps({
+                "hook_event_name": "Stop",
+                "workspacePaths": [tmp],
+                "conversationId": "conv-observe",
+                "last_assistant_message": "모든 검증을 완벽하게 완료했습니다.",
+            })
+            env = {k: v for k, v in os.environ.items() if k != "LAZYARGON_STOP_GUARD"}
+            proc = subprocess.run(
+                [NODE, str(ROOT / "scripts" / "stop_claim_guard.mjs")],
+                input=payload, text=True, encoding="utf-8", capture_output=True, env=env, cwd=str(ROOT),
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(proc.stdout.strip(), "{}")
+            entries = [json.loads(l) for l in (Path(tmp) / ".lazyargon" / "stop-guard.jsonl").read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(len(entries), 1)
+            self.assertTrue(entries[0]["would_block"])
+            self.assertEqual(entries[0]["conversationId"], "conv-observe")
 
     def test_insufficient_data_strict_abstention_passes(self):
         payload = json.dumps({
@@ -298,7 +321,7 @@ class StopClaimGuardTests(unittest.TestCase):
                 "cwd": tmp,
                 "last_assistant_message": "테스트 10 passed. 산출물: results/phantom_artifact.json 생성을 완료했습니다.",
             })
-            proc = run_guard("stop_claim_guard.mjs", [], stdin_payload=payload)
+            proc = run_guard("stop_claim_guard.mjs", [], env=ENFORCE, stdin_payload=payload)
             self.assertEqual(proc.returncode, 0)
             out = json.loads(proc.stdout)
             self.assertEqual(out.get("decision"), "block")
@@ -924,7 +947,7 @@ class AntigravityRuntimeTranscriptPayloadTests(unittest.TestCase):
                 "terminationReason": "model_stop",
                 "fullyIdle": True,
             })
-            proc = run_guard("stop_claim_guard.mjs", [], stdin_payload=payload, cwd=tmp)
+            proc = run_guard("stop_claim_guard.mjs", [], env=ENFORCE, stdin_payload=payload, cwd=tmp)
             self.assertEqual(proc.returncode, 0)
             out = json.loads(proc.stdout)
             self.assertEqual(out.get("decision"), "block")

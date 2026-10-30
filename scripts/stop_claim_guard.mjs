@@ -12,6 +12,8 @@
  *   { hook_event_name: "Stop"|"SubagentStop", stop_hook_active: bool,
  *     last_assistant_message?: string, ... }
  * 차단 규약: stdout 에 {"decision":"block","reason":"..."} 출력 + exit 0.
+ * 모드: 기본은 observe — 차단했을 판정을 <workspace>/.lazyargon/stop-guard.jsonl 에 기록만 하고 통과시킨다.
+ *   LAZYARGON_STOP_GUARD=enforce 일 때만 실제로 block 한다 (오탐률을 잰 뒤 전환).
  *
  * 정직한 동작 규약:
  * - stop_hook_active=true (이미 재개된 턴)면 개입하지 않는다 — 무한 루프 방지.
@@ -143,6 +145,37 @@ function readTailContent(filePath, maxBytes = 512 * 1024) {
 
 const NORMAL_STOP_REASONS = new Set(['NO_TOOL_CALL', 'model_stop']);
 
+function workspaceDir(payload) {
+	return (
+		payload.cwd ||
+		(Array.isArray(payload.workspacePaths) && typeof payload.workspacePaths[0] === 'string' ? payload.workspacePaths[0] : '') ||
+		process.cwd()
+	);
+}
+
+function emitBlock(payload, reason) {
+	if (process.env.LAZYARGON_STOP_GUARD === 'enforce') {
+		process.stdout.write(`${JSON.stringify({ decision: 'block', reason })}\n`);
+		process.exit(0);
+	}
+	try {
+		const dir = path.join(workspaceDir(payload), '.lazyargon');
+		fs.mkdirSync(dir, { recursive: true });
+		const entry = {
+			ts: new Date().toISOString(),
+			mode: 'observe',
+			would_block: true,
+			conversationId: payload.conversationId || null,
+			reason: reason.slice(0, 300),
+		};
+		fs.appendFileSync(path.join(dir, 'stop-guard.jsonl'), `${JSON.stringify(entry)}\n`);
+	} catch (err) {
+		process.stderr.write(`stop_claim_guard: observe log failed: ${err.message}\n`);
+	}
+	process.stdout.write('{}\n');
+	process.exit(0);
+}
+
 async function main() {
 	let payload;
 	try {
@@ -209,9 +242,10 @@ async function main() {
 				const unverifiedNodes = (Array.isArray(dag.nodes) ? dag.nodes : []).filter((n) => n && n.state === 'reported_done');
 				if (unverifiedNodes.length > 0) {
 					const ids = unverifiedNodes.map((n) => n.id).join(', ');
-					const reason = `[STOP CLAIM GUARD v${GUARD_PACK_VERSION}] 4단계 증거 등급 위반(reported_done != verified): .lazyargon/ulw-dag.json 노드 [${ids}]가 아직 'verified' 상태가 아닙니다. 검증 명령을 실행해 settle 한 뒤 완료를 선언하십시오.`;
-					process.stdout.write(`${JSON.stringify({ decision: 'block', reason })}\n`);
-					process.exit(0);
+					emitBlock(
+						payload,
+						`[STOP CLAIM GUARD v${GUARD_PACK_VERSION}] 4단계 증거 등급 위반(reported_done != verified): .lazyargon/ulw-dag.json 노드 [${ids}]가 아직 'verified' 상태가 아닙니다. 검증 명령을 실행해 settle 한 뒤 완료를 선언하십시오.`,
+					);
 				}
 			} catch {
 				// ignore malformed dag file
@@ -228,9 +262,10 @@ async function main() {
 			const existsInTranscript = transcriptContent ? transcriptContent.includes(claimedPath) : false;
 
 			if (!existsOnDisk && !existsInTranscript) {
-				const reason = `[STOP CLAIM GUARD v${GUARD_PACK_VERSION}] 사실 역추적(Fact-Retracing) 실패: 메시지에 완료 산출물로 주장된 파일 "${claimedPath}"이 디스크 또는 트랜스크립트에 존재하지 않습니다. 허위 파일 경로 생성을 차단합니다.`;
-				process.stdout.write(`${JSON.stringify({ decision: 'block', reason })}\n`);
-				process.exit(0);
+				emitBlock(
+					payload,
+					`[STOP CLAIM GUARD v${GUARD_PACK_VERSION}] 사실 역추적(Fact-Retracing) 실패: 메시지에 완료 산출물로 주장된 파일 "${claimedPath}"이 디스크 또는 트랜스크립트에 존재하지 않습니다. 허위 파일 경로 생성을 차단합니다.`,
+				);
 			}
 		}
 
@@ -248,8 +283,7 @@ async function main() {
 		'증거를 제시할 수 없는 항목은 "완료"라고 쓰지 말고 현재 상태를 사실대로 서술하라 (미확인/미측정 표기).',
 		'이 선언이 단순 상태 보고라면 과장 표현을 빼고 사실만 쓰면 통과한다.',
 	].join('\n');
-	process.stdout.write(`${JSON.stringify({ decision: 'block', reason })}\n`);
-	process.exit(0);
+	emitBlock(payload, reason);
 }
 
 main().catch(() => {
