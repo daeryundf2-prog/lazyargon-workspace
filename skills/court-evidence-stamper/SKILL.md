@@ -30,3 +30,4 @@ description: "대법원 전자소송(ECFS) 표준 규격 증거 표찰(갑/을 �
 - **호증 구분:** 원고/고소인(`갑 제O호증`), 피고/피고소인(`을 제O호증`), 참가인(`병 제O호증`).
 - **표찰 위치:** 첫 페이지 및 전 페이지 우측 상단 박스 처리.
 - **무결성:** 원본 증거물의 SHA-256 해시를 증거설명서 비고란에 필수 병기.
+- **A4 HTML/PDF 표 조판 (`print-paged-media.md` §8):** 서증 목록표·증거설명서를 HTML/PDF로 출력할 때 64자 `SHA-256` 해시는 좁은 비고 열에 우겨 넣지 말고 `<tr class="row-sub"><td colspan="N" class="mono">` 전폭(`178mm`) 서브행(`≤95ch`, `word-break: break-all`)으로 분리하여 셀 내부 수직 공백(`layout_cell_void_imbalance`)과 Chromium 인쇄 자동 축소(`Print Shrink-to-Fit`)를 방지한다.

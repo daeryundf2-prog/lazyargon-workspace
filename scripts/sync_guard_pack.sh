@@ -10,7 +10,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(dirname "$HERE")"
 PARENT="$(dirname "$ROOT")"
 
-GUARDS="markdown_structure_guard.mjs json_schema_guard.mjs"
+GUARDS="markdown_structure_guard.mjs json_schema_guard.mjs stop_claim_guard.mjs"
 CHECK_ONLY=0
 if [ "${1:-}" = "--check" ]; then
   CHECK_ONLY=1

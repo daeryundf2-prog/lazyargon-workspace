@@ -162,12 +162,28 @@ async function main() {
 		process.exit(0);
 	}
 	if (EVIDENCE_RE.test(message)) {
-		// Feature 15: Fact-Retracing Gate (v2)
+		// Feature 15: Fact-Retracing Gate (v2) + OMH 4-Stage DAG Completion Integrity
 		// Verify high-risk claimed file paths against disk and transcript
 		const baseCwd =
 			payload.cwd ||
 			(Array.isArray(payload.workspacePaths) && typeof payload.workspacePaths[0] === 'string' ? payload.workspacePaths[0] : '') ||
 			process.cwd();
+
+		const dagPath = path.join(baseCwd, '.lazyargon', 'ulw-dag.json');
+		if (fs.existsSync(dagPath)) {
+			try {
+				const dag = JSON.parse(fs.readFileSync(dagPath, 'utf8'));
+				const unverifiedNodes = (Array.isArray(dag.nodes) ? dag.nodes : []).filter((n) => n && n.state === 'reported_done');
+				if (unverifiedNodes.length > 0) {
+					const ids = unverifiedNodes.map((n) => n.id).join(', ');
+					const reason = `[STOP CLAIM GUARD v${GUARD_PACK_VERSION}] 4단계 증거 등급 위반(reported_done != verified): .lazyargon/ulw-dag.json 노드 [${ids}]가 아직 'verified' 상태가 아닙니다. 검증 명령을 실행해 settle 한 뒤 완료를 선언하십시오.`;
+					process.stdout.write(`${JSON.stringify({ decision: 'block', reason })}\n`);
+					process.exit(0);
+				}
+			} catch {
+				// ignore malformed dag file
+			}
+		}
 
 		const claimedFileMatches = message.matchAll(/(?:(?:생성|작성|수정|추가|산출물)(?:은|는|이|가|로|으로)?|(?:created|written|generated|file|path))\s*[:=]?\s*[`"']?([a-zA-Z0-9_.:/\\가-힣-]+\.(?:ts|js|mjs|py|go|rs|json|md))[`"']?/gi);
 		for (const match of claimedFileMatches) {

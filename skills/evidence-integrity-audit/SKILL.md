@@ -49,3 +49,4 @@ Exit code: `0` 불일치 없음 / `1` 불일치 존재 / `2` 실행 오류. **ex
 - 감사 대상은 **원본**. 스탬핑본(`stamp_evidence.py` 출력)은 해시가 다르므로
   원본 감사와 별도로 관리한다 — 증거설명서 비고란은 항상 원본 해시다.
 - 감사 보고서는 시점 정보를 담는다. 원본이 갱신되면 재감사가 필요하다.
+- **HTML/PDF 조판 시 2단 서브행 규칙 (`print-paged-media.md` §8)**: 무결성 증명서 표를 A4 HTML/PDF로 조판할 때 64자 `SHA-256` 해시를 우측의 좁은 열에 넣으면 4줄로 줄바꿈되며 좌측 열들에 70% 이상의 빈 수직 여백(`layout_cell_void_imbalance`)이 발생한다. 반드시 `<tbody class="row-group" style="break-inside: avoid;">` 안에 주 행(`tr.row-main`: `evidence_id`, `파일명`, `크기`, `시각`, `판정`)과 전폭 해시 바(`<tr class="row-sub"><td colspan="5" class="mono">` `≤95ch`, `word-break: break-all`)를 2단으로 분리해 `SHA-256`이 단 1줄에 들어가도록 조판한다.

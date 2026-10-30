@@ -40,6 +40,13 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "node ./scripts/stop_claim_guard.mjs",
+        "timeout": 5
+      }
     ]
   }
 }

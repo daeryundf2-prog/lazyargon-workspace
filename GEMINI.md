@@ -1,15 +1,14 @@
 # LazyForensic — Gemini / Antigravity
 
-호스트는 Google Antigravity, 세션 UI는 사용자가 선택한 모델을 따른다. 어떤 모델이 실제로 떠 있는지는 `## 런타임`의 `세션 모델` 값(호스트 보고값)만 믿는다. 플랜·설정 파일로 추정하지 않는다 — API 키 모드의 `agy`는 Argon을 인식 못 하면 Gemini 3.8 Flash(High)로 조용히 폴백한다.
-이 플러그인은 증거 자료를 정리하고 보고서 초안을 만든다. 포렌식 획득이나 법원 제출 적격성을 보장하지 않는다.
+호스트는 Google Antigravity, 세션 UI는 사용자가 선택한 모델을 따른다. 실제 모델은 `## 런타임`의 `세션 모델` 값(호스트 보고값)만 믿는다(API 키 모드의 `agy`는 Argon 미매핑 시 Gemini 3.8 Flash(High)로 폴백). 이 플러그인은 증거 자료를 정리하고 보고서 초안을 만든다. 포렌식 획득이나 법원 제출 적격성을 보장하지 않는다.
 
-| 세션 모델 | 제공 플랜 | 이 플러그인에서의 역할 |
+| 세션 모델 | 제공 플랜 | 역할 |
 | :--- | :--- | :--- |
-| Gemini 4 Argon (MEDIUM 기본, HIGH 요청 가능) | Ultra · Enterprise · 유료 Pro(10/15~, 주간 전용 쿼터, MEDIUM/HIGH만) | 법률 초안·판결문 분석·보고서 초안·검증 판정 레인. 출력이 길고 느리며 한도를 빨리 쓴다 |
-| Gemini 3.8 Flash | Pro · Ultra | 파싱·추출·표 정리·초안 골격·단순 편집. `Model: "flash"` 레인의 실체 |
-| Claude Opus/Sonnet 5.5 | Ultra (할당량 희소) | 코드 변경의 교차 가족 최종 판정 1레인 |
+| Gemini 4 Argon (MEDIUM/HIGH) | Ultra · Enterprise · Pro(주간 쿼터) | 법률 초안·판결문 분석·보고서 본문·검증 판정 레인 (`Model: "inherit"`) |
+| Gemini 3.8 Flash | Pro · Ultra | 파싱·추출·표 정리·초안 골격·단순 편집 (`Model: "flash"`) |
+| Claude Opus/Sonnet 5.5 | Ultra | 코드 변경의 교차 가족 최종 판정 1레인 |
 
-Argon 세션에서 지켜야 하는 기계적 제약(출처: `lazyargon/docs/argon-field-notes.md`): **(1)** 모든 쓰기는 100줄 이하 청크(호출당 20KB 미만) — 큰 단일 `write_to_file`이나 긴 사고 직후의 큰 쓰기는 호스트 60초 컷오프로 유실된다. **(2)** 실제 컨텍스트 상한은 UI 표시와 무관하게 256K이고 240~280K에서 컴팩션된다. 해시·파일 경로·사건번호·측정값은 200K 전에 `.lazyargon/pins.md`에 고정하고, 컴팩션("Resuming from a compaction") 뒤에는 고정 파일과 원본을 다시 읽은 다음에만 인용·수정한다. 요약 뒤 ID·해시를 지어낸 사례가 있다. **(3)** 쓴 파일은 다시 열어 확인한다. **(4)** 범위는 전수로 적는다 — 모델은 적힌 범위만 처리한다. **(5)** 보고서 요약은 10줄, 문단은 4문장 이하.
+Argon 기계적 제약(`lazyargon/docs/argon-field-notes.md`): **(1)** 100줄 이하 청크(20KB 미만) 쓰기(60초 컷오프 `#1255` 방지). **(2)** 실효 컨텍스트 상한 256K(240~280K 컴팩션 전에 해시·경로·사건번호·측정값을 `.lazyargon/pins.md`에 고정하고 컴팩션 후 원본·핀 파일 재열람). **(3)** 쓴 파일 재열람 확인. **(4)** 처리 범위 전수 명시. **(5)** 보고서 요약 10줄, 문단 4문장 이하.
 
 ## 도구
 
@@ -24,11 +23,7 @@ OpenCode `task(...)`, `model_tier`, `subagent_type`, Cursor `Task`, `view_file`�
 
 ## `invoke_subagent` 계약
 
-스키마와 프롬프트 형식(TASK / DELIVERABLE / SCOPE / VERIFY / STOP / RETURN / WRITE / ROLE ENVELOPE)은 `docs/antigravity-tools.md` 한 곳에만 둔다. 규칙 파일이 호스트 예산을 넘으면 통째로 빠지므로 여기에 중복하지 않는다.
-
-레인 힌트는 `hostEnforced=false`다. 레인별 기본값은 `lazyargon/rules/AGENTS.md`의 표와 같다: 탐색·파싱·추출·표 정리·초안 골격은 `flash`, 보고서 본문·법률 초안·판결문 분석·검증 판정은 `inherit`, 긴급 쿼터 폴백만 `flash_lite`. Claude 5.5 세션이어도 `inherit`는 최종 판정 레인 하나에만 쓴다. Ultra 요금제에서 Claude 할당량이 Gemini보다 훨씬 적기 때문이다.
-팬아웃 전에 `예산: <N> 레인 / <M> 웨이브`를 선언한다. 사용자 지정이 없으면 4레인 / 2웨이브가 상한이다. 워커 프롬프트에는 종료 조건(같은 도구 3회 반복·도구 호출 40회·진척 없는 턴 2회 → UNKNOWN), 반환 상한(≤40줄), 그리고 승인이 필요한 도구(`run_command` 등)는 한 턴에 하나만 쓴다는 규칙을 넣는다 — 한 턴에 여러 도구를 섞으면 승인이 다른 단계로 넘어가 병렬 웨이브가 멈춘다(antigravity-cli #1249). 작업이 바뀌면 새 대화를 연다. 턴당 쿼터는 컨텍스트 길이에 비례한다.
-세션 UI는 사용자가 선택한 세션 모델을 따른다. 호스트 `modelName`이 다르지 않으면 자식 모델이 바뀌었다고 말하지 않는다.
+스키마와 프롬프트 형식(TASK / DELIVERABLE / SCOPE / VERIFY / STOP / RETURN / WRITE / ROLE ENVELOPE)은 `docs/antigravity-tools.md` 한 곳에만 둔다(규칙 파일 예산 초과 `#1254` 방지). 레인 힌트는 `hostEnforced=false`이며 기본값은 `lazyargon/rules/AGENTS.md`를 따른다(`flash`: 탐색·파싱·초안 골격, `inherit`: 본문·법률·검증, `flash_lite`: 긴급 쿼터 폴백). 팬아웃 전 `예산: <N> 레인 / <M> 웨이브`(기본 4레인/2웨이브 상한)를 선언하고, 종료 조건(동일 도구 3회·호출 40회·무진척 2턴 → UNKNOWN), 반환 상한(≤40줄), 승인 도구(`run_command` 등) 단일 호출 규칙(`#1249`)을 지킨다. 호스트 `modelName`이 다르지 않으면 자식 모델이 바뀌었다고 말하지 않는다.
 
 ## 실패 폐쇄 (할루시네이션 차단 — 최우선)
 

@@ -13,6 +13,6 @@ python skills/video-editor/helpers/timeline_view.py "<동영상경로>" <시작�
 python skills/video-editor/helpers/render.py edl.json -o extracted_clip.mp4 --build-subtitles
 ```
 
-Manim 참고는 사용자가 교육용 애니메이션을 명시한 경우에만 `manim-video/REFERENCE.md`다. 스킬 피커에 올리지 않는다.
+Manim 참고는 사용자가 교육용 애니메이션을 명시한 경우에만 `manim-video/REFERENCE.md`다. 스킬 피커에 올리지 않는다. 프로그래매틱 쇼릴·모션 타이포그래피·FFmpeg 필터그래프(`scene_manifest/v1`, `zoompan`, `xfade`, `sidechaincompress`) 레시피는 `references/showreel-videogen.md`를 참고한다.
 
 가공 이력(구간, 필터)을 보고서에 적는다. `invoke_subagent` `Model: "inherit"`로 클립을 만들고 부모는 원본 경로가 그대로인지 확인한다.

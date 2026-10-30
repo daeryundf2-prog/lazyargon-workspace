@@ -85,6 +85,7 @@ python scripts/crime_schedule_xlsx.py --audit 범죄일람표_제출용.xlsx --r
 - `type: "업무보고서"`는 행안부 편람 체계(상단 표기: 문서번호·시행일자·수신·
   제목, 본문 `1. → 가.` 위계)로 렌더링된다 — kordoc `ministry` 프리셋과
   동일한 조판 규칙.
+- **A4 인쇄 여백 프로파일 (`print-paged-media.md` §8)**: HTML/PDF로 직접 조판할 때는 문서 용도별 `@page` 여백 프로파일을 구분한다 — **대법원 전자소송 서면(민사소송규칙 제4조)**: `@page { size: A4; margin: 45mm 20mm 30mm 20mm; }` (`170 × 222 mm`, 본문 `12pt`, 줄간격 `180–200%`), **행안부 공문서·업무보고서**: `@page { size: A4; margin: 30mm 20mm 15mm 20mm; }` (`170 × 252 mm`, 본문 `10.5–11pt`), **고밀도 포렌식·분석 보고서**: `@page { size: A4; margin: 14mm 16mm; }` (`178 × 269 mm`, 본문 `10pt`, 표 `9pt`).
 - **서식 채우기(계약서·위임장 등)**: `kordoc` MCP ≥4.14.0의
   `fill_form(hwpx-preserve)` 모드는 원본 HWPX의 표 테두리·셀 너비·정렬을
   그대로 보존하고 빈칸 텍스트만 주입한다. 기존 양식 파일을 재사용할 때는
