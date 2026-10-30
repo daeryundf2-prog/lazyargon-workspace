@@ -117,8 +117,8 @@ class GeminiCatalogTests(unittest.TestCase):
         # then
         self.assertEqual(proc.returncode, 0, proc.stderr)
         out = json.loads(proc.stdout)
-        ctx = out["hookSpecificOutput"]["additionalContext"]
-        self.assertEqual(out["hookSpecificOutput"]["hookEventName"], "SessionStart")
+        ctx = out["injectSteps"][0]["systemMessage"]["systemMessage"]
+        self.assertEqual(list(out), ["injectSteps"])
         self.assertIn("invoke_subagent", ctx)
         self.assertIn("실패 폐쇄", ctx)
         self.assertIn("호스트 `Read`", ctx)
@@ -140,7 +140,7 @@ class GeminiCatalogTests(unittest.TestCase):
             input=payload, text=True, encoding="utf-8", capture_output=True, check=False, cwd=str(ROOT), env=env,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        ctx = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+        ctx = json.loads(proc.stdout)["injectSteps"][0]["systemMessage"]["systemMessage"]
         self.assertIn("세션 모델: gemini-4-argon", ctx)
         self.assertNotIn("Argon이라고 가정하지 말 것", ctx)
 
@@ -154,7 +154,7 @@ class GeminiCatalogTests(unittest.TestCase):
                 input="{}", text=True, encoding="utf-8", capture_output=True, check=False, cwd=tmp,
             )
             self.assertEqual(proc.returncode, 0, proc.stderr)
-            ctx = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+            ctx = json.loads(proc.stdout)["injectSteps"][0]["systemMessage"]["systemMessage"]
             self.assertIn("고정 식별자 (.lazyargon/pins.md", ctx)
             self.assertIn("c" * 64, ctx)
 
@@ -250,7 +250,7 @@ class GeminiCatalogTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertNotIn("secret-law-key-should-not-appear", proc.stdout)
         self.assertNotIn("secret-law-key-should-not-appear", proc.stderr)
-        ctx = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+        ctx = json.loads(proc.stdout)["injectSteps"][0]["systemMessage"]["systemMessage"]
         self.assertRegex(ctx, r"korean_law: (ready|missing-build|missing-LAW_OC)")
 
     def test_setup_korean_law_is_local_only(self):

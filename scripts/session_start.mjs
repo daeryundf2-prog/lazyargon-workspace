@@ -52,10 +52,6 @@ export function resolveWorkspaceCwd(payload = {}) {
 	);
 }
 
-function hookEventName(payload) {
-	return typeof payload.hook_event_name === "string" && payload.hook_event_name ? payload.hook_event_name : "SessionStart";
-}
-
 // 호스트가 주는 모델명만 쓴다. 키 이름은 호스트 버전마다 달라 후보를 넓게 본다.
 export function sessionModel(payload, env = process.env) {
 	const candidates = [
@@ -145,16 +141,9 @@ if (isMain) {
 	const payload = parsePayload(raw);
 	const context = additionalContext(payload);
 	if (context) {
-		process.stdout.write(
-			`${JSON.stringify({
-				injectSteps: [{ systemMessage: { systemMessage: context } }],
-				additionalContext: context,
-				hookSpecificOutput: {
-					hookEventName: hookEventName(payload),
-					additionalContext: context,
-				},
-			})}\n`,
-		);
+		// Antigravity drops the whole SessionStart output when it carries keys beyond injectSteps
+		// (verified live 2026-10-30: extra additionalContext/hookSpecificOutput -> nothing injected).
+		process.stdout.write(`${JSON.stringify({ injectSteps: [{ systemMessage: { systemMessage: context } }] })}\n`);
 	} else {
 		process.stdout.write("{}\n");
 	}

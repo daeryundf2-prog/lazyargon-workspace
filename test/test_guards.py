@@ -997,9 +997,8 @@ class AntigravityRuntimeTranscriptPayloadTests(unittest.TestCase):
         self.assertEqual(proc_ss.returncode, 0, proc_ss.stderr)
         ss_out = json.loads(proc_ss.stdout)
         self.assertIn("injectSteps", ss_out)
-        self.assertIn("hookSpecificOutput", ss_out)
+        self.assertEqual(list(ss_out), ["injectSteps"])
         self.assertTrue(ss_out["injectSteps"][0]["systemMessage"]["systemMessage"])
-        self.assertTrue(ss_out["hookSpecificOutput"]["additionalContext"])
 
         # 2) PreToolUse command (deny & allow)
         pre_cmd = hooks_data["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
