@@ -41,6 +41,7 @@ Antigravity 진입점. 먼저 `GEMINI.md`를 읽고, **레인 하나**만 고른
 | 이 폴더 변조됐는지·해시 목록·매니페스트 | `python scripts/evidence_manifest.py <폴더> -o m.json` / `--verify` |
 | 개인정보 있는지·주민번호·계좌 마스킹 | `python scripts/pii_mask.py <대상>` |
 | 키워드가 어디 나오는지·단어 찾아줘 | `python scripts/keyword_report.py <폴더> "키워드"` |
+| 맥북 사용기록 검토·이 맥 사용 이력 | `python scripts/collect_mac_usage.py --out <작업폴더>/evidence --request-access --wait-access 120` → 절차·보고서 규칙은 `references/mac-usage-history.md` |
 | 녹음 받아쓰기·전사·녹취록 | `python scripts/local_stt.py <대상> [--verbatim] [--keywords ...]` |
 | 녹음에서 말하는 구간·무음 | `python scripts/audio_survey.py <대상>` |
 | 이 사진이랑 비슷한 거·같은 사진 | `python scripts/image_similarity.py <폴더> [--query 사진]` |

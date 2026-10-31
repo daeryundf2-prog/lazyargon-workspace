@@ -70,6 +70,7 @@ OpenCode `task(...)`, `model_tier`, `subagent_type`, Cursor `Task`, `view_file`�
 | 타임라인 HTML | `skills/forensic-timeline/SKILL.md` |
 | 생성/수정 시각, 해시 | `skills/forensic-audit/SKILL.md` |
 | 카카오톡 txt | `skills/kakao-chat-extractor/SKILL.md` |
+| 맥 사용기록 조사 (권한 획득 시도, 수집 범위 표) | `python scripts/collect_mac_usage.py --out <작업폴더>/evidence --request-access --wait-access 120` 후 `skills/lazyforensic/references/mac-usage-history.md` |
 | 텔레그램 JSON | `skills/telegram-chat-extractor/SKILL.md` |
 | 감정서/보고서 초안 | `skills/forensic-report/SKILL.md` |
 | **보고서 검증 (무조건)** | `skills/report-guard/SKILL.md` |

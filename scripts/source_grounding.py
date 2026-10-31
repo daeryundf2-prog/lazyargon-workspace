@@ -90,6 +90,9 @@ DOT_DT_RE = re.compile(r"(?<!\d)(\d{4})[./](\d{1,2})[./](\d{1,2})\.?\s+(\d{1,2})
 YEARLESS_RE = re.compile(r"(?<!\d)(\d{1,2})월\s*(\d{1,2})일\s*(?:(오전|오후)\s*)?(\d{1,2})(?::(\d{2})|\s*시(?:\s*(\d{1,2})\s*분)?)")
 TITLE_END_RE = re.compile(r"(?:법|법률|시행령|시행규칙|령|규칙|규정|조례|협약|지침|기준|가이드라인)$")
 TABLE_SPEAKER_COL = re.compile(r"화자|발신|발언자|작성자|송신|보낸|speaker|sender|from", re.IGNORECASE)
+ABSENCE_RE = re.compile(r"없[다었음는]|흔적\s*(?:이\s*)?없|사용하지\s*않|기록되지\s*않|확인되지\s*않|발견되지\s*않|미사용|(?<!\d)0\s*건")
+WHOLE_RE = re.compile(r"(?:모든|전체|전부|전수)\s*(?:사용\s*)?(?:기록|이력|로그|소스|사용기록)")
+COVERAGE_HEDGE_RE = re.compile(r"미확인|권한|제외|DENIED|ERROR|SKIPPED|수집\s*못|수집하지\s*못|읽지\s*못")
 TABLE_TEXT_COL = re.compile(r"발언|메시지|대화|원문|인용|진술|utterance|message", re.IGNORECASE)
 
 
@@ -307,6 +310,22 @@ def _quote_items(i: int, lines: list[str], fenced: set[int], speakers_by_len: li
     return items
 
 
+def uncollected_sources(texts: dict[str, str]) -> list[dict[str, Any]]:
+    """coverage.json 에서 읽지 못한 소스(DENIED/ERROR/SKIPPED). ABSENT 는 파일이 없는 것이라 '없음'이 사실이다."""
+    out = []
+    for name, t in texts.items():
+        if Path(name).name != "coverage.json":
+            continue
+        try:
+            srcs = json.loads(t).get("sources", [])
+        except (ValueError, AttributeError):
+            continue
+        for s in srcs:
+            if isinstance(s, dict) and s.get("status") not in ("OK", "ABSENT") and s.get("match"):
+                out.append({"label": s.get("label", s.get("id")), "status": s["status"], "re": re.compile(s["match"], re.IGNORECASE)})
+    return out
+
+
 def check(report_text: str, source_paths: list[str], timeline_text: str = "") -> dict[str, Any]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -321,6 +340,7 @@ def check(report_text: str, source_paths: list[str], timeline_text: str = "") ->
     source_times = {ts[:16] for ts in all_times if " " in ts}
     source_yearless = {ts[5:16] for ts in source_times}
     basenames = {unicodedata.normalize("NFC", f.name).lower() for f in files}
+    missing = uncollected_sources(texts)
 
     lines, fenced = _clean_report(report_text)
     quotes_checked = 0
@@ -373,6 +393,13 @@ def check(report_text: str, source_paths: list[str], timeline_text: str = "") ->
                 errors.append(f"L{ln} 화자 불일치: \"{nq[:30]}\" 은 원본에서 {sorted(said_by)} 의 발언인데 보고서는 {sorted(wrong)} 로 적었다")
         if not texts or idx in fenced:
             continue
+        if missing and not COVERAGE_HEDGE_RE.search(line):
+            if ABSENCE_RE.search(line):
+                for s in missing:
+                    if s["re"].search(line):
+                        errors.append(f"L{ln} 수집하지 못한 소스의 부재 단정: {s['label']}({s['status']}) — 읽지 못한 기록은 '없음'이 아니라 '미확인(권한 없음 등)'으로 적을 것")
+            if WHOLE_RE.search(line):
+                errors.append(f"L{ln} 전체 검토 주장: 수집하지 못한 소스가 있다({', '.join(s['label'] + '=' + s['status'] for s in missing)}) — 범위를 줄여 쓰거나 빠진 소스를 밝힐 것")
         tpos = HHMM_RE.search(line)
         tstart, tend = (tpos.start(), tpos.end()) if tpos else (0, 0)
         for ts in sorted(full_times - source_times):
