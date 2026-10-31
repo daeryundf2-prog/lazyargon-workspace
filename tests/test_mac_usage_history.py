@@ -66,6 +66,16 @@ def test_statuses_and_time_conversion(home: Path, tmp_path: Path):
     assert first.startswith("2026-03-12 ") and "https://example.com/" in first
 
 
+def test_unreadable_folder_is_denied_not_absent(home: Path, tmp_path: Path):
+    chrome = home / "Library/Application Support/Google/Chrome"
+    chrome.chmod(0)
+    try:
+        cov = collect(home, tmp_path / "evidence")
+    finally:
+        chrome.chmod(0o700)
+    assert cov["chromium_history"]["status"] == "DENIED", cov["chromium_history"]
+
+
 def test_window_filters_rows(home: Path, tmp_path: Path):
     cov = collect(home, tmp_path / "evidence", "--since", "2026-04-01")
     assert cov["chromium_history"]["status"] == "OK" and cov["chromium_history"]["rows"] == 0

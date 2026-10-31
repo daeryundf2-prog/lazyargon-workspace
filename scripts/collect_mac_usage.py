@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """collect_mac_usage.py — macOS 사용기록을 읽기 전용으로 수집하고 소스별 수집 상태를 남긴다.
 
-원본 DB는 열지 않고 임시 복사본만 읽는다. 소스마다 OK / DENIED(macOS 권한) / ABSENT / ERROR / SKIPPED 를
+원본은 읽기로만 복사하고, 쿼리는 임시 복사본에서 한다(원본에 쓰기·잠금 없음). --home 은 사용자 폴더 소스에만 적용되고,
+설치 기록(/Library/Receipts)·pmset·통합 로그는 이 Mac 시스템 값이다. 시각은 이 Mac의 현지 시간대로 적는다. 소스마다 OK / DENIED(macOS 권한) / ABSENT / ERROR / SKIPPED 를
 coverage.json·coverage.md 에 기록한다. DENIED 가 있으면 --request-access 가 전체 디스크 접근 권한 설정 창을 열고,
 --wait-access N 동안 다시 시도한다.
 
@@ -22,7 +23,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -80,8 +81,22 @@ def one_line(*parts: object) -> str:
     return " | ".join(str(p).replace("\n", " ").replace("\r", " ").strip() for p in parts if p not in (None, ""))
 
 
+def ensure_listable(*dirs: Path) -> None:
+    """존재하지만 권한 때문에 못 여는 폴더를 ABSENT 가 아니라 DENIED 로 보고하게 한다."""
+    for d in dirs:
+        try:
+            os.listdir(d)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            if is_denied(exc):
+                raise Denied(str(exc)) from exc
+            raise
+
+
 def chromium(home: Path, tmp: Path) -> tuple[list[str], list[tuple[float | None, str]]]:
     roots = ["Google/Chrome", "BraveSoftware/Brave-Browser", "Microsoft Edge", "Arc/User Data", "Chromium"]
+    ensure_listable(*(home / "Library/Application Support" / r for r in roots))
     paths = [Path(p) for r in roots for p in glob.glob(str(home / "Library/Application Support" / r / "*" / "History"))]
     rows = []
     for p in paths:
@@ -91,6 +106,7 @@ def chromium(home: Path, tmp: Path) -> tuple[list[str], list[tuple[float | None,
 
 
 def firefox(home: Path, tmp: Path):
+    ensure_listable(home / "Library/Application Support/Firefox/Profiles")
     paths = [Path(p) for p in glob.glob(str(home / "Library/Application Support/Firefox/Profiles/*/places.sqlite"))]
     rows = []
     for p in paths:
@@ -102,8 +118,15 @@ def firefox(home: Path, tmp: Path):
 def single_db(rel: str, sql: str, conv: Callable[[Row], tuple[float | None, str]]):
     def run(home: Path, tmp: Path):
         p = home / rel
-        if not p.exists():
+        try:
+            os.stat(p)
+        except FileNotFoundError:
+            ensure_listable(p.parent)
             return [], None
+        except OSError as exc:
+            if is_denied(exc):
+                raise Denied(str(exc)) from exc
+            raise
         return [str(p)], [conv(r) for r in query(p, sql, tmp)]
 
     return run
@@ -142,7 +165,7 @@ def install_history(home: Path, tmp: Path):
         if is_denied(exc):
             raise Denied(str(exc)) from exc
         raise
-    return [str(p)], [(i["date"].timestamp() if i.get("date") else None,
+    return [str(p)], [(i["date"].replace(tzinfo=timezone.utc).timestamp() if i.get("date") else None,
                        one_line(i.get("displayName"), i.get("displayVersion"), i.get("processName"))) for i in items]
 
 
