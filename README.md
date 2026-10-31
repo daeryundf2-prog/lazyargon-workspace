@@ -8,10 +8,10 @@
 > **Fail-Closed Digital Forensic Analysis Toolkit & Evidentiary Integrity Pipeline**  
 > Streamlining evidence parsing, timeline reconstruction, SHA-256 chain-of-custody verification, and forensic report generation for developers, researchers, and legal tech practitioners.
 
-디지털 증거 파싱 → 타임라인 렌더 → 해시 감사(SHA-256) → 보고서 초안 생성 → **초안 무결성 검증**까지의 전 과정을 자동화하고 휴먼 에러를 방지하는 오픈소스 디지털 포렌식 분석 스위트입니다.
+디지털 증거 파싱 → 타임라인 렌더 → 해시 감사(SHA-256) → 보고서 초안 생성 → **초안 무결성 검증**까지의 전 과정을 자동화하고 휴먼 에러를 줄이는 오픈소스 디지털 포렌식 분석 스위트입니다.
 
 > ⚠️ **이 도구가 아닌 것**: 증거 획득 도구도, 법원 제출 적격성을 보장하는 스위트도 아니다
-> (**not a forensic acquisition or court-admissibility suite**). 판단과 획득은 별도 검증된
+> (**not a forensic acquisition or court-admissibility suite**). 판단과 획득은 별도 도구로
 > 도구/분석가의 몫이며, 이 플러그인은 "확인되지 않은 것은 `미확인`으로 비워 둔다"는
 > fail-closed 원칙으로 초안을 만든다. 한계 목록은 [`docs/GAPS.md`](docs/GAPS.md).
 
@@ -139,7 +139,7 @@ python scripts/korean_morph_forensic.py --evidence case/audit.json --report case
 | AI 사용 흔적 포렌식 (md/txt/E01 역추적) | ✅ | `skills/ai-trace-detector/SKILL.md` |
 | 딥페이크/AI 합성 미디어 1차 감사 (SHA-256, C2PA/JUMBF, 2D FFT) | ✅ | `python scripts/analyze_deepfake_evidence.py <파일> --output 리포트.md` — 최종 판정은 다중 탐지기 앙상블 별도 수행 |
 | 영상 대화록(Whisper) | 🔒 동의 필요 | `--upload-audio` 명시 동의 없이 외부 전송 금지 |
-| 로컬 STT 배치·verbatim·키워드 히트 | ✅ | `python scripts/local_stt.py <파일|폴더> --keywords "키워드"` — faster-whisper/openai-whisper/whisper.cpp/moonshine 자동탐지, 엔진 없으면 지어내지 않고 exit 3 |
+| 로컬 STT 배치·verbatim·키워드 히트 | ✅ | `python scripts/local_stt.py <파일|폴더> --keywords "키워드"` — 로컬 엔진(faster-whisper/openai-whisper/whisper.cpp/moonshine)은 `--allow-local-whisper` 명시 시에만 자동탐지, 엔진 없으면 지어내지 않고 exit 3 |
 | 오디오 내용 지문·유사 쌍 | 🟡 BYO | `python scripts/audio_fingerprint.py <폴더>` — fpcalc(chromaprint) 필요, 재인코딩된 같은 녹음도 지문 유사도로 탐지 |
 | 다중 소스 타임라인 병합 | ✅ | `python scripts/merge_timeline.py --manifest m.json --kakao k.json --exif e.json [--stt t.json --anchor "파일=시각"]` → `events.json` (STT 상대시각은 --anchor 없이 벽시계로 올리지 않음) |
 | 서증 목록표 초안 | ✅ | `python scripts/court_evidence_sheet.py <manifest.json> --party 갑` — 관행 양식 **초안**(제출 전 검토 필수), 입증취지는 `--purpose` 지정분만 기재 |

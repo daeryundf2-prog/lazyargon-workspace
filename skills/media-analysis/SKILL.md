@@ -7,7 +7,7 @@ metadata:
 
 # media-analysis
 
-음성·이미지·영상 파일을 분석할 때 이 스킬을 사용한다. **STT(음성 전사)는 느리고 부정확한 내부(로컬) Whisper를 절대 쓰지 말고, 무조건 서버(유튜브 서버 자동자막 + Google STT 서버 병렬 전송)로 보내서 수행한다.**
+음성·이미지·영상 파일을 분석할 때 이 스킬을 사용한다. **STT(음성 전사)는 기본적으로 서버(유튜브 서버 자동자막 + Google STT 서버 병렬 전송)로 수행한다. 내부(로컬) Whisper는 기본 금지이며 `local_stt.py --allow-local-whisper`를 명시할 때만 쓴다.**
 
 ## Pipeline (이 순서를 지켜라)
 
@@ -28,7 +28,7 @@ metadata:
      ```
 3. **서버 음성 전사 (STT — 내부 로컬 Whisper 금지, 무조건 서버 STT 사용)**:
    - **유튜브 영상/URL**: 유튜브 서버 자동자막이 가장 빠르고 정확하므로 `local_stt.py`에 URL(또는 파일명에 `[11자리_유튜브ID]`가 포함된 파일)을 넘기면 `yt-dlp`로 유튜브 서버 자막(`.vtt`)을 최우선 추출한다.
-   - **로컬 오디오/영상 및 구간 검증**: `local_stt.py`의 기본 엔진(`google-server`)이 `ffmpeg` 16kHz PCM 청크(25초 단위)를 `ThreadPoolExecutor`로 Google Speech-to-Text 서버(`recognize_google`, `ko-KR`)에 병렬 전송해 수 초 내에 정확하게 전사한다:
+   - **로컬 오디오/영상 및 구간 검증**: `local_stt.py`의 기본 엔진(`google-server`)이 `ffmpeg` 16kHz PCM 청크(25초 단위)를 `ThreadPoolExecutor`로 Google Speech-to-Text 서버(`recognize_google`, `ko-KR`)에 병렬 전송해 전사한다 (속도·정확도는 음질과 네트워크에 따라 다르므로 결과는 원음과 대조해 검증한다):
      ```bash
      ./scripts/py scripts/local_stt.py <오디오파일_또는_폴더_또는_유튜브URL> --lang ko --keywords "주요키워드"
      python scripts/crime_schedule_xlsx.py --from-json schedule_rows.json -o 범죄일람표_청취검토.xlsx
@@ -56,11 +56,11 @@ metadata:
 
 ## 규칙
 
-- **내부(로컬) Whisper 사용 금지**: `faster-whisper`, `openai-whisper`, `whisper-cli` 등 로컬 Whisper는 다수 영상 처리 시 30분 이상 멈추고 한국어 구어체·고유명사 오인식이 심하므로 사용하지 않는다. 무조건 유튜브 서버 자동자막(`yt-dlp`) 또는 Google STT 서버(`recognize_google` 병렬 청크 전송)로 처리한다.
-- 대용량 영상은 `watch.py --detail efficient --max-frames 20`으로 먼저 개괄 확인한 뒤 필요한 타임스탬프 구간만 `--timestamps`로 정밀 추출한다. Gemini 4 Argon 세션에서 이미지 결과는 대화 전체와 함께 재전송돼 캐시 적중이 낮고(한 측정에서 약 4%) 한도를 빠르게 쓴다. 50프레임은 개괄이 부족할 때만 쓴다.
+- **내부(로컬) Whisper 기본 금지**: `faster-whisper`, `openai-whisper`, `whisper-cli` 등 로컬 Whisper는 `--allow-local-whisper`를 명시하지 않는 한 쓰지 않는다. 대용량 배치에서 시간이 오래 걸리고 한국어 구어체·고유명사 오인식이 있었다는 메모가 있으나 벤치마크로 확인된 수치는 아니다. 기본 경로는 유튜브 서버 자동자막(`yt-dlp`) 또는 Google STT 서버(`recognize_google` 병렬 청크 전송)다.
+- 대용량 영상은 `watch.py --detail efficient --max-frames 20`으로 먼저 개괄 확인한 뒤 필요한 타임스탬프 구간만 `--timestamps`로 정밀 추출한다. Gemini 4 Argon 세션에서는 이미지 결과가 대화와 함께 재전송되어 캐시 적중이 낮을 수 있고(한 세션 측정치 약 4%, 재현 미확인) 사용 한도를 빠르게 소모할 수 있다. 50프레임은 개괄이 부족할 때만 쓴다.
 - **프레임은 한 번만 읽는다**: 각 프레임을 `Read`로 1회 판독하고 관찰을 `frames_notes.md`(프레임 경로·타임스탬프·관찰 1~2줄)에 즉시 적는다. 이후 판단은 노트로 하고, 같은 이미지를 "다시 확인"하려고 재열람하지 않는다.
 - **글자·수치는 OCR, 말은 STT에서만**: 화면 속 글자, 손글씨, 계기판·다이얼·디지털 표시 수치는 `tesseract`/`scripts/local_ocr.py` 출력만 인용한다. 모델이 읽은 값은 `모델 판독(미검증)`으로 표기하며 OCR과 다르면 OCR 값을 쓴다. Argon은 손글씨 JSON 추출과 다이얼 판독에서 실패 사례가 보고됐다.
-- **오디오와 영상은 따로 분석한다**: 음성 내용은 `local_stt.py` 서버 전사본, 시각 내용은 추출 프레임으로 각각 다룬다. 영상 파일을 통째로 모델에 보여 주고 대사를 받아 적게 하지 않는다 — 음성·영상을 분리 입력했을 때 날조가 최소였다는 보고가 있고, 모델 전사에는 명백한 오류 사례가 있다.
+- **오디오와 영상은 따로 분석한다**: 음성 내용은 `local_stt.py` 서버 전사본, 시각 내용은 추출 프레임으로 각각 다룬다. 영상 파일을 통째로 모델에 보여 주고 대사를 받아 적게 하지 않는다 — 음성·영상을 분리 입력했을 때 날조가 적었다는 보고가 있고, 모델 전사에서 오류 사례도 보고됐다 (출처 미검증).
 - **타임스탬프 표기 규격 (소수점 초 금지)**: STT 전사본 정리 및 보고서·녹취록 인용 시 `384.94s`, `12.0초` 같은 원시 소수점 초(float seconds) 표기를 금지하고, 반드시 `MM분 SS초`(예: `06분 24초`) 또는 `MM:SS`(예: `06:24`, 1시간 이상은 `HH:MM:SS`) 정수 단위로 변환해 표기한다.
 - **원문 그대로 기술 (교차검증 메모·임의 윤문 금지)**: 전사 텍스트 및 대화록 본문에 `에이닷 N번 발언 교차확인`, `[전수 검증 완료]` 같은 에이전트 내부 교차검증 메모나 임의 윤문·의역을 섞지 말고 발화 원문 그대로 기술한다.
 - 전사·OCR 결과 파일(`.txt`/`.json`)은 증거 매니페스트(`evidence_manifest.py`) 체크포인트에 첨부할 수 있다.

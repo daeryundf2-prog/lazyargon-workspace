@@ -12,7 +12,7 @@ description: 로컬 드라이브, 폴더, E01 포렌식 이미지 내 마크다�
 ## 🔍 핵심 포렌식 탐지 영역
 
 1. **오픈 보캐블러리(Open-Vocabulary) 동적 AI 모델 역추적**:
-   - 고정된 화이트리스트에 국한되지 않고, 프론트매터(`model:`, `engine:`, `harness:`) 및 본문 선언문, 주석에서 임의의 모델명(`fable`, `gpt sol`, `runa terra`, `sonnet5`, `gemini 3.7`, `o3-mini`, `claude-3-7-sonnet`, 사내 커스텀 파인튜닝 LLM 등)을 100% 동적 추출.
+   - 고정된 화이트리스트에 국한되지 않고, 프론트매터(`model:`, `engine:`, `harness:`) 및 본문 선언문, 주석에서 임의의 모델명(`fable`, `gpt sol`, `runa terra`, `sonnet5`, `gemini 3.7`, `o3-mini`, `claude-3-7-sonnet`, 사내 커스텀 파인튜닝 LLM 등)을 프론트매터·선언문·주석에서 추출하도록 설계되어 있다. 사전에 없는 도구·모델은 탐지되지 않으며 결과는 추정이다.
 2. **라인별 5대 AI 사용 흔적 마이크로 진단 (Line-by-Line Micro Forensic)**:
    - **추론/CoT 아티팩트**: `<think>`, `<antThinking>`, `<antArtifact>`, `<task>`, `<attempt_completion>`
    - **AI 정형 어투/슬롭**: "Certainly!", "물론입니다!", "도움이 되셨기를 바랍니다", "As an AI language model"
@@ -22,7 +22,7 @@ description: 로컬 드라이브, 폴더, E01 포렌식 이미지 내 마크다�
 3. **시계열 활동 포렌식 타임라인 (Activity Chronology)**:
    - 파일시스템 MACB(생성/수정 일시) + 본문 내 명시 일자 + AI 질의/생성 + 민감정보 노출 + 회의 의사결정을 시간순으로 정렬한 포렌식 타임라인 제공.
 4. **E01 포렌식 이미지 스트리밍 지원**:
-   - 물리/논리 디스크 압축 이미지(E01) 마운트 없이 원시 바이트 스트림에서 직접 파싱.
+   - 물리/논리 디스크 압축 이미지(E01) 마운트 없이 원시 바이트 스트림에서 파싱하는 것을 목표로 하며, 지원 범위는 엔진 구현에 따른다.
 
 ---
 
@@ -33,9 +33,9 @@ description: 로컬 드라이브, 폴더, E01 포렌식 이미지 내 마크다�
 1. 환경 변수 `LAZYFORENSIC_MD_ANALYZER_HOME`
 2. `~/.gemini/antigravity/scratch/md-analyzer` (Windows: `%USERPROFILE%\.gemini\antigravity\scratch\md-analyzer`)
 
-아래 명령은 모두 해석된 엔진 디렉터리를 cwd 로 두고 실행한다.
+아래 명령은 모두 해석된 엔진 디렉터리를 cwd 로 두고 실행한다. 아래 `python -m src.cli` 진입점은 외부 엔진의 것이며 이 플러그인 안에서는 확인되지 않았다(번들된 `src/` 패키지 없음). 실행 전 엔진 디렉터리에 해당 패키지가 있는지 확인하라.
 
-### 1. 대상 디렉토리 / 드라이브 AI 흔적 전수 스캔 및 보고서 생성
+### 1. 대상 디렉토리 / 드라이브 AI 흔적 스캔 및 보고서 생성
 ```bash
 # 특정 디렉토리 또는 드라이브 스캔 + 인터랙티브 HTML 보고서 자동 생성
 python -m src.cli scan D:\TargetFolder --report --db md_analysis.db

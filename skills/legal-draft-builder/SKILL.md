@@ -44,9 +44,9 @@ ${PLUGIN_ROOT}/scripts/py ${PLUGIN_ROOT}/scripts/generate_legal_draft.py --input
 ## 법률 사실성 검증 (Anti-Hallucination Gate)
 
 `generate_legal_draft.py`와 `verify_legal_factuality.py`는 `gemini_hallucination_mitigation_deep_dive.md`의 환각 방어 프로토콜을 구현합니다:
-1. **Evidence-First 프로토콜 (Section 3.2 #1)**: 사실관계 서술 시 원문 증거 구절을 `<evidence>...</evidence>` 태그로 인용하거나 본문에 명시적 서증(`갑 제1호증`)을 기재하도록 강제합니다 (`--strict-evidence`).
+1. **Evidence-First 프로토콜 (Section 3.2 #1)**: 사실관계 서술 시 원문 증거 구절을 `<evidence>...</evidence>` 태그로 인용하거나 본문에 명시적 서증(`갑 제1호증`)을 기재하도록 요구합니다 (`--strict-evidence`).
 2. **Strict Abstention 프로토콜 (Section 3.2 #2)**: 사실관계가 불명확하거나 증거가 없는 쟁점은 지어내지 않고 `[INSUFFICIENT_DATA]` 또는 `{...}` 플레이스홀더로 기권합니다.
-3. **법령 조문 및 판례 상한 경계 (Section 5.1 #1)**: 대한민국 주요 법령의 조문 상한 경계(`STATUTE_BOUNDS`, 예: 민법 1118조, 형법 372조)와 대법원 판례 연도(1948~2026년) 및 사건부호 규칙을 기계적으로 자동 검증합니다.
+3. **법령 조문 및 판례 상한 경계 (Section 5.1 #1)**: 대한민국 주요 법령의 조문 상한 경계(`STATUTE_BOUNDS`, 예: 민법 1118조, 형법 372조)와 대법원 판례 연도(1948~2026년) 및 사건부호 형식을 점검합니다. 상한표에 없는 조문은 판정 대상이 아니다.
 4. **법원 명칭 날조 차단 (Section 5.1 #2)**: 폐지되거나 실존하지 않는 가짜 법원 명칭(`서울민사지방법원`, `한국연방법원`, `고등대법원` 등)을 즉시 차단합니다.
 5. **Kiwi 형태소 하이브리드 그라운딩 (Section 5.2)**: `kiwipiepy` 형태소 분석기를 통해 조사(은/는/이/가/을/를/의)를 분리하고 법률 고유명사 사전을 탑재하여 원본 증거와 초안 간의 형태소 정합성을 감사합니다 (`--morph-grounding`).
 6. **Local High-Fidelity 비파라메트릭 모드 (Section 4.2)**: 원본 증거(`--source`)와 `<evidence>` 인용 태그를 강제하며, 형태소 그라운딩 커버리지 70% 미달 시 생성을 차단합니다 (`--high-fidelity`). Vertex API를 호출하지 않는 로컬 게이트입니다.
@@ -61,7 +61,7 @@ ${PLUGIN_ROOT}/scripts/py ${PLUGIN_ROOT}/scripts/generate_legal_draft.py --input
 # 작성된 마크다운 초안의 조문/판례 사실성 및 Kiwi 형태소 하이브리드 그라운딩 검사
 ${PLUGIN_ROOT}/scripts/py ${PLUGIN_ROOT}/scripts/verify_legal_factuality.py 소장_초안.md --source 증거_사실관계.txt --morph-grounding --high-fidelity --strict --json
 
-# 법률 사실성 종합 헬스체크 (Section 5.1 및 7-8 전수 검증 100점 감사)
+# 법률 사실성 헬스체크 (Section 5.1 및 7-8 관련 11개 테스트, 통과율 점수)
 ${PLUGIN_ROOT}/scripts/py ${PLUGIN_ROOT}/scripts/verify_legal_factuality.py --health-check --json
 
 # Kiwi 형태소 기반 증거-초안 렉시컬 그라운딩 오버랩 단독 감사

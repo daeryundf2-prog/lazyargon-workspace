@@ -303,7 +303,7 @@ class CrimeScheduleXlsxAndReportGuardTests(unittest.TestCase):
         self.assertEqual(len(bad), 1)
         self.assertEqual(bad[0]["row"], 4)
 
-    def test_self_reference_hash_excluded_and_pins_loaded(self):
+    def test_self_reference_hash_excluded_and_pins_ignored(self):
         with tempfile.TemporaryDirectory() as tmp:
             rep = Path(tmp) / "report.md"
             self_hash = "a" * 64
@@ -322,7 +322,7 @@ class CrimeScheduleXlsxAndReportGuardTests(unittest.TestCase):
             finally:
                 os.chdir(old_cwd)
             self.assertNotIn(self_hash, hashes)
-            self.assertIn(pin_hash, hashes)
+            self.assertNotIn(pin_hash, hashes)
 
     def test_axiom_hit_verification_and_mismatch_detection(self):
         import sqlite3

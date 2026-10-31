@@ -439,6 +439,10 @@ def main(argv=None):
     # 5-4) <evidence> 태그 인용 검증 (Section 3.2 #1 Evidence-First)
     evidence_matches = EVIDENCE_TAG_RE.findall(text)
     if evidence_matches:
+        try:
+            from scripts.source_grounding import norm as _ground_norm
+        except ImportError:
+            from source_grounding import norm as _ground_norm
         combined_ev_text = ""
         for ep in args.evidence:
             p = Path(ep)
@@ -456,8 +460,8 @@ def main(argv=None):
             if not q_strip:
                 errors.append("<evidence> 태그가 비어 있습니다. 증거 측정값을 채우십시오.")
             elif combined_ev_text:
-                clean_q = re.sub(r"\s+", " ", q_strip)
-                clean_ev = re.sub(r"\s+", " ", combined_ev_text)
+                clean_q = re.sub(r"\s+", " ", _ground_norm(q_strip))
+                clean_ev = re.sub(r"\s+", " ", _ground_norm(combined_ev_text))
                 if clean_q not in clean_ev:
                     errors.append(
                         f"근거 인용 불일치: <evidence> 구절('{q_strip[:25]}...')이 제공된 증거 파일에 존재하지 않습니다."

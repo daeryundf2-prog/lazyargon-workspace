@@ -11,11 +11,11 @@ description: 2026년 8월 기준 딥페이크 생성·탐지·출처인증·사�
 
 ## 🎯 기술 영역별 심층 레퍼런스 색인
 
-본 스킬은 요청의 성격에 따라 다음 전수 레퍼런스를 즉시 참조한다:
+본 스킬은 요청의 성격에 따라 다음 주요 레퍼런스를 참조한다:
 
 | 영역 | 레퍼런스 파일 | 핵심 내용 |
 | :--- | :--- | :--- |
-| **생성 & 합성 모델** | [`references/01_generation_synthesis.md`](references/01_generation_synthesis.md) | Wan2.1, HunyuanVideo, CogVideoX, Kling, LivePortrait(12.8ms), Hallo2(4K 1hr), EchoMimic, PuLID, InstantID, F5-TTS(RTF 0.15), CosyVoice 2, ComfyUI 13대 노드 전수 |
+| **생성 & 합성 모델** | [`references/01_generation_synthesis.md`](references/01_generation_synthesis.md) | Wan2.1, HunyuanVideo, CogVideoX, Kling, LivePortrait(12.8ms), Hallo2(4K 1hr), EchoMimic, PuLID, InstantID, F5-TTS(RTF 0.15), CosyVoice 2, ComfyUI 주요 노드 |
 | **탐지 & 생체 포렌식** | [`references/02_detection_forensics.md`](references/02_detection_forensics.md) | DeepfakeBench 30종, UnivFD(92.3%), DIRE, NPR, F3-Net, SPSL, FakeShield(MLLM), rPPG 혈류 펄스, 각막 반사광 3D 광선 추적, 립싱크 위상차, 벤치마크 데이터셋 9종(FF++/Celeb-DF/DFDC/DF40/GenImage 등) |
 | **출처 인증 & 워터마크** | [`references/03_c2pa_watermarks.md`](references/03_c2pa_watermarks.md) | C2PA v1.3/v2.0 ISO JUMBF, Hard/Soft 바인딩, PKI 서명, SynthID(Text/Image/Video), Stable Signature VAE 각인, Tree-Ring 푸리에 노이즈 |
 | **국내외 사법 & 증거능력**| [`references/04_legal_and_court.md`](references/04_legal_and_court.md) | 성폭력처벌법 제14조의2(소지·시청죄 신설, 반포목적 삭제, 계속범 법리), 성인 신분위장수사(2025.06), 형소법 제310조의2/313조 SHA-256 무결성, Daubert 표준 |
@@ -79,6 +79,6 @@ python scripts/analyze_deepfake_evidence.py "위조의심_사진.png" --plot-fft
 
 ## ⚖️ 사법 포렌식 감정 시 필수 준수 원칙
 
-1. **상용 AI 판별기 확률 스코어("92% AI") 단독 제출 절대 금지**: 법원(형사소송법 제310조의2, 제313조)은 블랙박스 AI 탐지기 점수를 독립 증거로 채택하지 않는다.
-2. **증거 연계보관성(Chain of Custody) 확보**: 압수 시점부터 법정 제출 시점까지 **SHA-256 해시 일치 증명서**, 원본 비트스트림 이미지(E01, DD),  파일시스템 타임스탬프를 병합 기재해야 한다.
+1. **상용 AI 판별기 확률 스코어("92% AI")를 단독 증거로 제출하지 말 것**: 블랙박스 탐지기 점수는 독립 증거로 채택되기 어렵다고 알려져 있다. 관련 조문(형사소송법 제310조의2, 제313조)과 판례는 사건 전에 원문을 확인할 것.
+2. **증거 연계보관성(Chain of Custody) 확보**: 압수 시점부터 법정 제출 시점까지 **SHA-256 해시 일치 증명서**, 원본 비트스트림 이미지(E01, DD),  파일시스템 타임스탬프를 병합 기재하는 것이 일반적이다.
 3. **손실 압축 플랫폼 전송 이력 확인**: Telegram Photo, WhatsApp, X를 거친 파일은 압축으로 고주파 주파수 지문이 파괴되므로, 무압축 `File(문서)` 원본 확보를 최우선 권고한다.

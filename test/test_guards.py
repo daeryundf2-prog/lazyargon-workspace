@@ -282,7 +282,7 @@ class StopClaimGuardTests(unittest.TestCase):
         proc = run_guard("stop_claim_guard.mjs", [], env=ENFORCE, stdin_payload=payload)
         self.assertEqual(proc.returncode, 0)
         out = json.loads(proc.stdout)
-        self.assertEqual(out.get("decision"), "block")
+        self.assertEqual(out.get("decision"), "continue")
         self.assertIn("반증 가능한 증거", out.get("reason", ""))
 
     def test_unsupported_grand_claim_observe_mode_logs_instead_of_blocking(self):
@@ -324,7 +324,7 @@ class StopClaimGuardTests(unittest.TestCase):
             proc = run_guard("stop_claim_guard.mjs", [], env=ENFORCE, stdin_payload=payload)
             self.assertEqual(proc.returncode, 0)
             out = json.loads(proc.stdout)
-            self.assertEqual(out.get("decision"), "block")
+            self.assertEqual(out.get("decision"), "continue")
             self.assertIn("Fact-Retracing", out.get("reason", ""))
 
     def test_antigravity_native_toolcall_commandline(self):
@@ -950,7 +950,7 @@ class AntigravityRuntimeTranscriptPayloadTests(unittest.TestCase):
             proc = run_guard("stop_claim_guard.mjs", [], env=ENFORCE, stdin_payload=payload, cwd=tmp)
             self.assertEqual(proc.returncode, 0)
             out = json.loads(proc.stdout)
-            self.assertEqual(out.get("decision"), "block")
+            self.assertEqual(out.get("decision"), "continue")
 
     def test_hooks_json_commands_e2e_via_sh_c(self):
         hooks_data = json.loads((ROOT / "hooks.json").read_text(encoding="utf-8"))

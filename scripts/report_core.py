@@ -198,7 +198,7 @@ def load_evidence_hashes(
             except Exception:
                 pass
         try:
-            text = path.read_text(encoding="utf-8", errors="ignore")
+            text, _, _ = read_text_smart(path)
         except Exception:
             continue
         objs: list = []
@@ -230,14 +230,6 @@ def load_evidence_hashes(
                 else:
                     hashes.update(h.lower() for h in extract_hashes(json.dumps(item, ensure_ascii=False)))
 
-    for pins_path in (Path.cwd() / ".lazyargon" / "pins.md", Path.cwd() / "scratch" / ".lazyargon" / "pins.md"):
-        if pins_path.is_file():
-            try:
-                pins_text = pins_path.read_text(encoding="utf-8", errors="ignore")
-                for h in re.findall(r"\b[a-fA-F0-9]{64}\b", pins_text):
-                    hashes.add(h.lower())
-            except Exception:
-                pass
     return hashes
 
 
@@ -322,7 +314,7 @@ def load_evidence_hash_file_pairs(
         if not path.exists():
             continue
         try:
-            text = path.read_text(encoding="utf-8", errors="ignore")
+            text, _, _ = read_text_smart(path)
         except Exception:
             continue
         try:

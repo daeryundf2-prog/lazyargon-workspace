@@ -11,7 +11,7 @@
  * 페이로드 규약 (start-work-continuation codex-hook.js 와 동일):
  *   { hook_event_name: "Stop"|"SubagentStop", stop_hook_active: bool,
  *     last_assistant_message?: string, ... }
- * 차단 규약: stdout 에 {"decision":"block","reason":"..."} 출력 + exit 0.
+ * 차단 규약: stdout 에 {"decision":"continue","reason":"..."} 출력 + exit 0 (Antigravity Stop 계약: continue 만 루프 재진입, 그 외 값은 정지 허용).
  * 모드: 기본은 observe — 차단했을 판정을 <workspace>/.lazyargon/stop-guard.jsonl 에 기록만 하고 통과시킨다.
  *   LAZYARGON_STOP_GUARD=enforce (대소문자·양끝 공백 무시) 일 때만 실제로 block 한다 (오탐률을 잰 뒤 전환).
  *   페이로드에 절대경로 워크스페이스가 없으면 ~/.lazyargon/stop-guard.jsonl 에 기록한다.
@@ -158,7 +158,7 @@ function observeLogBase(payload) {
 
 function emitBlock(payload, reason) {
 	if ((process.env.LAZYARGON_STOP_GUARD || '').trim().toLowerCase() === 'enforce') {
-		process.stdout.write(`${JSON.stringify({ decision: 'block', reason })}\n`);
+		process.stdout.write(`${JSON.stringify({ decision: 'continue', reason })}\n`);
 		process.exit(0);
 	}
 	try {

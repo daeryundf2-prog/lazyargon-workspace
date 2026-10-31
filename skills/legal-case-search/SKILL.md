@@ -19,7 +19,7 @@ description: "국가법령정보센터 및 대법원 판례 검색, 위법성 �
 
 > 세션 런타임의 `korean_law`가 `ready`일 때만 `korean_law` MCP를 호출합니다.
 > **절대 법률 조문을 조작하거나 임의 창작하지 마십시오 (Never fabricate statutes).**
-> 작성된 모든 법률 검토 결과물은 `verify_legal_factuality.py`를 통해 실존 법령 상한선 및 판례 번호 규칙에 대해 기계적으로 전수 감사됩니다.
+> 작성된 법률 검토 결과물은 `verify_legal_factuality.py`로 법령 조문 상한표(`STATUTE_BOUNDS`)와 판례 번호 형식을 점검한다. 이 점검은 조문 실존이나 원문 일치를 증명하지 않는다. 원문 대조는 korean_law MCP로 따로 해야 한다.
 
 ## 기계적 사실성 및 High-Fidelity 게이트
 

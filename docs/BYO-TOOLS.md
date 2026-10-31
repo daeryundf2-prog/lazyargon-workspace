@@ -7,8 +7,8 @@
 
 | 도구 | 용도 | 설치 | 연동 |
 |---|---|---|---|
-| **sherlock-project** | 닉네임→482개 사이트 존재 여부 OSINT 스캔 | `pip install sherlock-project` | `scripts/osint_username.py` 자동 탐지. ⚠️ 조회 닉네임이 외부 사이트에 노출 — 의뢰인 동의 필요 |
-| **CrisperWhisper** | verbatim STT — 필러음·말더듬·단어 타임스탬프 보존. 증거 녹취에 표준 Whisper보다 적합 | faster-whisper로 HF에서 자동 다운로드 | `local_stt.py --model nyrahealth/CrisperWhisper --verbatim` |
+| **sherlock-project** | 닉네임 기준 사이트 존재 여부 OSINT 스캔 | `pip install sherlock-project` | `scripts/osint_username.py` 자동 탐지. ⚠️ 조회 닉네임이 외부 사이트에 노출 — 의뢰인 동의 필요 |
+| **CrisperWhisper** | verbatim STT — 필러음·말더듬·단어 타임스탬프 보존 모드용 모델 (로컬 Whisper 계열) | faster-whisper로 HF에서 자동 다운로드 | `local_stt.py --allow-local-whisper --model nyrahealth/CrisperWhisper --verbatim` (로컬 Whisper는 명시 옵트인) |
 | **transcribe.cpp** | whisper.cpp 확장, 16개 모델 계열 로컬 STT | GitHub 빌드 | `local_stt.py`의 binary 엔진 탐지 |
 | **Subtitle Edit** | 전사문 사람 검토·수정 GUI (로컬 전용, MIT) | 릴리스 다운로드 | `local_stt.py` 산출물을 수동 교정할 때 |
 | **Moonshine** (`useful-moonshine`) | 스트리밍 설계 초경량 STT — ⚠️ **영어 전용** | `pip install useful-moonshine` | `local_stt.py`가 자동 탐지(최후순위). 한국어 증거엔 부적합 |
@@ -17,12 +17,12 @@
 | **Unlimited-OCR** (Baidu) | 40p+ PDF 통째 OCR | GitHub | 스캔 증거 문서 대량 텍스트화 후 `keyword_report.py` |
 | **Upscayl** | 저해상도 이미지 업스케일 (로컬, 오픈소스) | 릴리스 다운로드 | 증거 사진 선명화 — 단, 업스케일본은 파생물로 표시 |
 | **claude-video (`/watch`)** | 영상 링크→프레임+전사+AI 분석 | `github.com/bradautomates/claude-video` | 프레임 추출은 `forensic-video`와 겹침 — 영상 '내용 읽기'용 |
-| **kordoc** | HWPX 글자 100% 보존 검증된 파서/리팩터링 사례 | GitHub | `extract_hwpx.py`가 못 읽는 구조(표·서식)가 필요할 때 |
+| **kordoc** | HWPX 파서/리팩터링 참고 사례 (이 저장소에서 글자 보존 정확도는 검증하지 않음) | GitHub | `extract_hwpx.py`가 못 읽는 구조(표·서식)가 필요할 때 |
 | **Camofox** | OSINT용 어사이드 연동 브라우저 (봇 탐지 회피 설계) | GitHub | sherlock이 막히는 사이트 수동 확인용. ⚠️ 외부 접속 — 동의 필요 |
 | **검색 API 무료 티어** (Exa·Tavily·SerpAPI·Brave) | OSINT 웹 검색 보조 | 각 사이트 키 발급 | `osint_username.py` 보조 — 외부 쿼리이므로 allowlist 검토 대상 |
 | **untrunc** | moov 손상 mp4 복구 (정상 참조 파일 필요) | GitHub | `video_integrity.py`가 DAMAGED/UNREADABLE로 잡은 파일의 복구 시도 |
 | **qpdf / pikepdf** | PDF 정밀 파싱·암호 해제·객체 스트림 검사 | `brew install qpdf` / `pip install pikepdf` | `pdf_audit.py`가 못 보는 객체 스트림 내부, 암호 해제본 생성 |
-| **Gemini Transcribe 3.5** | 클라우드 STT — 녹음분 **화자분리 최대 3명**(로컬 스택에 없는 유일 기능) | AI Studio/API | ⚠️ **증거 오디오를 외부 업로드** — 의뢰인 서면 동의 없이 사용 금지. `local_stt.py`가 못 하는 화자분리가 필요한 경우의 최후 옵션 |
+| **Gemini Transcribe 3.5** | 클라우드 STT — 녹음분 **화자분리 최대 3명**(로컬 스택에 없는 기능) | AI Studio/API | ⚠️ **증거 오디오를 외부 업로드** — 의뢰인 서면 동의 없이 사용 금지. `local_stt.py`가 못 하는 화자분리가 필요한 경우의 최후 옵션 |
 
 ## 워크플로 보조
 

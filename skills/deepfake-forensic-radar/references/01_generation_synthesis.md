@@ -1,4 +1,4 @@
-# 딥페이크 생성 & 합성 기술 전수 카탈로그 (2024~2026.08)
+# 딥페이크 생성 & 합성 기술 주요 카탈로그 (2024~2026.08)
 
 ## 1. 비디오 파운데이션 & DiT 생성 모델
 - **Wan2.1** (Alibaba Cloud): Flow Matching + Video DiT (1.3B, 14B). 3D Causal VAE (16x16 공간, 4x 시간 압축). T5 다국어 인코더 결합. [Wan-Video/Wan2.1](https://github.com/Wan-Video/Wan2.1)

@@ -59,7 +59,7 @@ def test_stop_claim_guard_blocks_unsupported_claim():
     proc = run_node_script("stop_claim_guard.mjs", stdin_payload=payload, env={"LAZYARGON_STOP_GUARD": "enforce"})
     assert proc.returncode == 0
     data = json.loads(proc.stdout)
-    assert data.get("decision") == "block"
+    assert data.get("decision") == "continue"
 
 
 def test_stop_claim_guard_passes_strict_abstention():
@@ -81,7 +81,7 @@ def test_stop_claim_guard_blocks_phantom_files(tmp_path):
     proc = run_node_script("stop_claim_guard.mjs", stdin_payload=payload, env={"LAZYARGON_STOP_GUARD": "enforce"})
     assert proc.returncode == 0
     data = json.loads(proc.stdout)
-    assert data.get("decision") == "block"
+    assert data.get("decision") == "continue"
     assert "Fact-Retracing" in data.get("reason", "")
 
 

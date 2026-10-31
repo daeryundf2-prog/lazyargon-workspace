@@ -81,3 +81,37 @@ def test_media_only_sources_require_text_transcripts(tmp_path: Path):
     (ev / "call.m4a").write_bytes(b"audio")
     res = run(write(tmp_path, '# 보고서\n김철수는 "내일 꼭 줄게"라고 말했다.\n'), str(ev))
     assert any("원본 텍스트 없음" in e for e in res["errors"])
+
+
+def test_html_td_fabricated_quote_with_entities_fails(case: Path):
+    body = '<table><tr><td>김철수는 &quot;돈을 이미 보냈다&quot;고 말했다.</td></tr></table>\n'
+    res = run(write(case, "<h1>보고서</h1>\n" + body), str(case / "evidence"))
+    assert res["verdict"] == "FAIL"
+    assert any("원본에 없는 인용" in e for e in res["errors"]), res["errors"]
+
+
+def test_absent_percentage_fails(case: Path):
+    res = run(write(case, "# 보고서\n시장 점유율 37%다.\n"), str(case / "evidence"))
+    assert res["verdict"] == "FAIL"
+    assert any("근거 없는 수치" in e for e in res["errors"]), res["errors"]
+
+
+def test_count_matching_only_a_date_fails(case: Path):
+    # sources contain "3월" (a date), never "3건"
+    res = run(write(case, "# 보고서\n총 3건이다.\n"), str(case / "evidence"))
+    assert res["verdict"] == "FAIL"
+    assert any("근거 없는 수치" in e for e in res["errors"]), res["errors"]
+
+
+def test_count_grounded_by_structured_json_value_passes(case: Path):
+    analysis = case / "evidence" / "analysis"
+    analysis.mkdir()
+    (analysis / "counts.json").write_text('{"messages": 5}', encoding="utf-8")
+    res = run(write(case, "# 보고서\n분석 대상은 총 5건이다.\n"), str(case / "evidence"))
+    assert res["verdict"] == "PASS", res["errors"]
+
+
+def test_html_report_quoting_existing_sentence_passes(case: Path):
+    body = "<p>김철수는 &quot;내일 꼭 줄게&quot;라고 보냈다.</p>\n"
+    res = run(write(case, "<h1>보고서</h1>\n" + body), str(case / "evidence"))
+    assert res["verdict"] == "PASS", res["errors"]

@@ -34,7 +34,7 @@ description: "포렌식 감정서/보고서 초안. 측정값만 채운다. 의�
 
 ## Antigravity hard grounding (할루시네이션 차단)
 
-`gemini_hallucination_mitigation_deep_dive.md`의 전수 환각 억제 프로토콜을 강제합니다:
+`gemini_hallucination_mitigation_deep_dive.md`의 환각 억제 프로토콜을 적용합니다. 아래 점검은 스크립트가 실제로 수행하는 범위로 한정됩니다:
 1. **Evidence-First 인용 선행 (Section 3.2 #1)**: 분석 결론 서술 전 반드시 `<evidence>...</evidence>` 태그 안에 원시 측정값(해시, 타임스탬프, 이벤트 로그)을 20단어 이내로 문자 그대로 인용합니다.
 2. **Strict Abstention 엄격 기권 (Section 3.2 #2)**: Chain of Custody나 타임라인 근거가 불충분할 경우 지어내지 않고 `미측정`, `미확인`, `[INSUFFICIENT_DATA]`로 표기합니다.
 3. **법령 조문 및 판례 상한 경계 (Section 5.1 #1)**: 정보통신망법(76조), 형법(372조) 등 상한 및 판례 연도를 검증합니다.
@@ -60,13 +60,15 @@ description: "포렌식 감정서/보고서 초안. 측정값만 채운다. 의�
 python scripts/source_grounding.py "보고서초안.md" --sources evidence analysis --timeline events.json
 ```
 
+`$humanize-korean`으로 윤문한 보고서는 윤문본에 위 명령을 다시 실행한다. 윤문이 인용·수치·시각을 바꿨으면 원문 값으로 되돌린 뒤 제출한다.
+
 ```bash
 # 부모가 반드시 재실행하는 검증 (High-Fidelity 비파라메트릭 모드)
 python skills/forensic-audit/scripts/audit_timestamps.py "증거파일" --json > audit.json  # 측정
 python scripts/verify_report.py "보고서초안.md" --evidence audit.json --timeline events.json --sources evidence analysis --require-sources --morph-grounding --high-fidelity --strict --json
 # exit 1이면 금지문구/근거없는 해시/미지원 조문/High-Fidelity 미달 → 수정 없이 제출 금지
 
-# 포렌식 사실성 종합 헬스체크 (Section 5.1 및 7-8 전수 10대 카테고리 100점 감사)
+# 포렌식 사실성 헬스체크 (Section 5.1 및 7-8 관련 12개 테스트, 통과율 점수)
 python scripts/verify_report.py --health-check --json
 
 # Kiwi 형태소 포렌식 그라운딩 단독 감사

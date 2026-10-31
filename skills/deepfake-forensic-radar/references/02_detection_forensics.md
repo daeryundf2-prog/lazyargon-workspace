@@ -1,4 +1,4 @@
-# 딥페이크 탐지 알고리즘 및 물리·생체 포렌식 불변량 전수 분석
+# 딥페이크 탐지 알고리즘 및 물리·생체 포렌식 불변량 주요 분석
 
 ## 1. 딥페이크 탐지 알고리즘 및 벤치마크
 - **DeepfakeBench** (SJTU/OpenDataLab): 30개 이상의 탐지기와 15개 벤치마크(FF++, Celeb-DF, DF40) 표준화 통합 플랫폼. [SCLBD/DeepfakeBench](https://github.com/SCLBD/DeepfakeBench)
@@ -42,7 +42,7 @@
 | **SBI** | 합성 학습 데이터 | **매우 높음** | 높음 | 탐지기 훈련 프레임워크 |
 | **FakeShield** | MLLM 추론 | 높음 | 보통 | 설명 가능 + 픽셀 히트맵 |
 
-## 4. 글로벌 벤치마크 데이터셋 (전수 목록)
+## 4. 글로벌 벤치마크 데이터셋 (주요 목록)
 - **FaceForensics++ (FF++)**: 1,000개 원본 비디오, 4개 조작 기법(Deepfakes, Face2Face, FaceSwap, NeuralTextures), 3단계 압축(c0 무압축 / c23 고화질 / c40 저화질).
 - **Celeb-DF / v2**: 연예인 유튜브 영상 기반 고품질 딥페이크 5,639개 — 초기 FF++의 깜빡임/색상 결함 개선 고난도 데이터셋.
 - **DFDC** (Deepfake Detection Challenge): Facebook/AWS 주관, 10만 개 이상 비디오의 대규모 상용 벤치마크.

@@ -43,9 +43,10 @@ QUOTE_RES = [
 ]
 EVIDENCE_TAG_RE = re.compile(r"<evidence(?:\s[^>]*)?>(.*?)</evidence>", re.IGNORECASE | re.DOTALL)
 COUNT_RE = re.compile(
-    r"(?<![A-Za-z\d.,제])(\d{1,3}(?:,\d{3})+|\d+)"
-    r"(건|개(?![월년])|회(?![사의원신차])|통(?![화장신보])|명(?![의령시확백]))(?![가-힣]*호증)"
+    r"(?<![A-Za-z\d.,제])(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)"
+    r"(%|건|개(?![월년])|회(?![사의원신차])|통(?![화장신보])|명(?![의령시확백])|KB|MB|GB|TB|바이트|페이지|프레임)(?![가-힣]*호증)"
 )
+TAG_RE = re.compile(r"<(?!/?evidence\b)[a-zA-Z/][^>]*>", re.IGNORECASE)
 SPEAKER_LINE_RE = re.compile(r"(?:^|[,\]\)]\s*)([가-힣A-Za-z][가-힣A-Za-z0-9 ]{0,14}?)\s*:\s*(.+)$")
 ABSTAIN_RE = re.compile(r"미확인|미측정|INSUFFICIENT_DATA|UNVERIFIED|판단\s*불능")
 MIN_QUOTE_CHARS = 4
@@ -93,7 +94,16 @@ def speaker_index(texts: dict[str, str]) -> list[tuple[str, str]]:
     return pairs
 
 
+def _count_grounded(num: str, unit: str, corpus: str) -> bool:
+    n, u = re.escape(num), re.escape(unit)
+    if re.search(rf"(?<![\d.]){n}(?![\d]|\.\d)\s?{u}", corpus, re.IGNORECASE):
+        return True
+    return bool(re.search(rf"[:=]\s*{n}(?![\d.])|[\"'“”]\s*{n}\s*[\"'“”]|,\s*{n}\s*,", corpus))
+
+
 def check(report_text: str, source_paths: list[str], timeline_text: str = "") -> dict[str, Any]:
+    if re.search(r"<[a-zA-Z/][^>]*>", report_text):
+        report_text = TAG_RE.sub("\n", html.unescape(report_text))
     errors: list[str] = []
     warnings: list[str] = []
     files, texts = collect_sources(source_paths)
@@ -133,7 +143,7 @@ def check(report_text: str, source_paths: list[str], timeline_text: str = "") ->
                 errors.append(f"L{ln} 원본/타임라인에 없는 시각: {ts[:16]} — 근거 자료의 시각만 쓸 것")
         for m in COUNT_RE.finditer(line):
             num = m.group(1).replace(",", "")
-            if not re.search(rf"(?<![\d]){num}(?![\d])", corpus_digits):
+            if not _count_grounded(num, m.group(2), corpus_digits):
                 errors.append(f"L{ln} 근거 없는 수치: {m.group(0)} — 자료나 분석 산출물(집계 JSON 등)에 이 값이 없다")
         for fm in FILE_TOKEN_RE.finditer(line):
             name = fm.group(1).strip().split("/")[-1].split("\\")[-1]

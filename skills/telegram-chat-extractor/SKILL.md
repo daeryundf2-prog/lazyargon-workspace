@@ -15,7 +15,7 @@ description: "텔레그램(Telegram Desktop) JSON 내보내기(result.json) 및 
 - **리치 텍스트 평탄화**: 링크, 멘션, 볼드/이탤릭 등 중첩 객체(List/Dict)를 텍스트로 평탄화 (중첩 서식의 의미는 일부 손실될 수 있음)
 - **첨부파일 및 미디어 감지**: 사진(Photo), 동영상/음성메모/문서(File/Media), 스티커(Sticker) 메타데이터 추출
 - **전달 및 답장 관계 분석**: `forwarded_from`, `reply_to_message_id` 관계 추적
-- **포렌식 타임라인 표준 변환**: `generate_timeline.py`와 100% 호환되는 `events.json` 출력
+- **포렌식 타임라인 변환**: `--events-out`으로 `timestamp`, `category`, `source`, `actor`, `description`, `details` 필드를 가진 `events.json`을 출력한다. `generate_timeline.py`가 읽는 필드 구성에 맞춘 것이며, 실제 호환 여부는 입력 파일로 확인해야 한다.
 
 ## 실행 방법
 

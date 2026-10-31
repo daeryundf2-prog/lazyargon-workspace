@@ -19,7 +19,7 @@
   "interface": {
     "displayName": "LazyArgon Workspace",
     "shortDescription": "Unified Forensics, Legal-Tech, Korean Docs & Humanize KR for Antigravity",
-    "longDescription": "Equips Antigravity with 4 lanes (help/forensic/visual/legal) for Gemini 4 Argon: Kakao/Telegram parsing, os.stat hash/timestamp checks, timeline visualization, report drafts, SHA-256 audit hooks, HWP/HWPX parsing, ECFS court evidence stamping/binding, legal brief drafting, PII masking, Whisper STT/OCR media analysis, and Humanize KR. Not a forensic acquisition or court-admissibility suite.",
+    "longDescription": "Equips Antigravity with 4 lanes (help/forensic/visual/legal) for Gemini 4 Argon: Kakao/Telegram parsing, os.stat hash/timestamp checks, timeline visualization, report drafts, SHA-256 audit hooks, HWP/HWPX parsing, ECFS court evidence stamping/binding, legal brief drafting, PII masking, server-side STT (Google, default) and OCR media analysis, and Humanize KR. Not a forensic acquisition or court-admissibility suite.",
     "developerName": "daeryundf2-prog",
     "category": "DFIR, Legal-Tech & Productivity",
     "capabilities": [
