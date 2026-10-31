@@ -144,6 +144,7 @@ def main(argv=None):
     parser.add_argument("--evidence", nargs="*", action="extend", default=[], help="Evidence files (audit json, audit_trail.jsonl, timeline json, etc.) for hash grounding")
     parser.add_argument("--timeline", help="Timeline events.json for timestamp grounding (optional)")
     parser.add_argument("--claim-ledger", help="Optional path to claim-ledger.md for Section 6 verification")
+    parser.add_argument("--axiom-db", help="Optional path to Magnet AXIOM Case.mfdb for hit_id & artifact_name 1:1 grounding")
     parser.add_argument("--law-cache", help="korean_law MCP 응답 캐시 JSON (법령대조 근거파일, 스켈레톤 — 자동대조 미완성)")
     parser.add_argument("--allow-historical", action="store_true", help="역사적 부처명 인용 허용 (오류 대신 경고 처리)")
     parser.add_argument("--morph-grounding", action="store_true", help="Kiwi 형태소 기반 증거-보고서 용어 일치도 검증 (Section 5.2)")
@@ -522,6 +523,28 @@ def main(argv=None):
                     errors.append(f"[Claim Ledger 위반] [{v['claimId']}] {v['violation']}")
         else:
             warnings.append("verify_claim_ledger 모듈을 찾을 수 없어 원장 검증을 건너뛰었습니다.")
+
+    # 5-7-2) Magnet AXIOM Case.mfdb hit_id & artifact_name 1:1 실측 대조 (--axiom-db)
+    if args.axiom_db:
+        try:
+            try:
+                from scripts.query_evidence_db import open_readonly, verify_report_axiom_citations
+            except ImportError:
+                from query_evidence_db import open_readonly, verify_report_axiom_citations
+            conn = open_readonly(args.axiom_db)
+            try:
+                ax_res = verify_report_axiom_citations(conn, text)
+            finally:
+                conn.close()
+            for mid in ax_res["missing_hits"]:
+                errors.append(f"[AXIOM hit 날조/오류] 보고서에 인용된 hit {mid}가 Case.mfdb에 존재하지 않습니다.")
+            for mm in ax_res["mismatches"]:
+                errors.append(
+                    f"[AXIOM 아티팩트 불일치] line {mm['line']}의 hit {mm['hit_id']}: "
+                    f"보고서 표기='{mm['claimed_artifact']}' != Case.mfdb 실제='{mm['actual_artifact']}'"
+                )
+        except Exception as exc:
+            errors.append(f"[AXIOM DB 검증 실패] {args.axiom_db} 열람/검증 오류: {exc}")
 
     # 5-8) 결측(미확인) 비율 — "근거 없는 항목을 전부 비워서 통과"하는 초안을 잡는다.
     #    Argon은 추측 대신 유보하는 빈도가 높아 이 경로가 흔하다. 결측 자체는 정직한 표기이므로

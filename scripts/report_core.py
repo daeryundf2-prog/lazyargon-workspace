@@ -230,14 +230,14 @@ def load_evidence_hashes(
                 else:
                     hashes.update(h.lower() for h in extract_hashes(json.dumps(item, ensure_ascii=False)))
 
-    pins_path = Path.cwd() / ".lazyargon" / "pins.md"
-    if pins_path.is_file():
-        try:
-            pins_text = pins_path.read_text(encoding="utf-8", errors="ignore")
-            for h in re.findall(r"\b[a-fA-F0-9]{64}\b", pins_text):
-                hashes.add(h.lower())
-        except Exception:
-            pass
+    for pins_path in (Path.cwd() / ".lazyargon" / "pins.md", Path.cwd() / "scratch" / ".lazyargon" / "pins.md"):
+        if pins_path.is_file():
+            try:
+                pins_text = pins_path.read_text(encoding="utf-8", errors="ignore")
+                for h in re.findall(r"\b[a-fA-F0-9]{64}\b", pins_text):
+                    hashes.add(h.lower())
+            except Exception:
+                pass
     return hashes
 
 

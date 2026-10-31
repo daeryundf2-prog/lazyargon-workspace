@@ -320,22 +320,191 @@ def render_report(schema: list[dict], query_block: str, hits: list[dict]) -> str
     return "\n".join(lines) + "\n"
 
 
+_AXIOM_ALIASES: dict[str, str] = {
+    "Storage Device Events": "Windows Event Logs - Storage Device Events",
+    "User PNP Events": "Windows Event Logs - User PNP Events",
+    "Prefetch Files": "Prefetch Files - Windows 8/10/11",
+    "Prefetch": "Prefetch Files - Windows 8/10/11",
+    "OS Info": "Operating System Information",
+    "File System Info": "File System Information",
+    "Chromium Downloads": "Chromium Based Browsers Downloads",
+    "Chromium Web History": "Chromium Based Browsers Web History",
+}
+from axiom_insider_audit import (  # noqa: E402
+    export_axiom_counts,
+    fetch_axiom_v10_hits,
+    get_axiom_canonical_artifacts,
+    has_axiom_v10_schema,
+    scan_git_and_utf16,
+    scan_insider_prompts,
+)
+
+_CORRECTION_LINE_RE = re.compile(r"오류|오기|정정|아니라|실제로는|잘못\s*(?:인용|혼입|매핑)")
+_HIT_CITATION_RE = re.compile(
+    r"\bhits?(?:_id)?(?:\s*[=:#]\s*|\s+)[`'*]*(\d+)(?!,\d{3}\b)[`'*]*((?:\s*(?:,\s+|/|\xb7)\s*[`'*]*\d+(?!,\d{3}\b)[`'*]*)*)",
+    re.IGNORECASE,
+)
+
+
+def _artifact_compatible(claimed: str, actual: str) -> bool:
+    c, a = claimed.casefold(), actual.casefold()
+    if c == a or a.startswith(c + " "):
+        return True
+    c_norm = c.replace("chromium based browsers ", "chrome ")
+    a_norm = a.replace("chromium based browsers ", "chrome ")
+    if c_norm == a_norm:
+        return True
+    if {c, a} <= {"windows stored credentials", "passwords and tokens"}:
+        return True
+    return False
+
+
+def verify_axiom_hits(conn: sqlite3.Connection, hit_ids: list[int]) -> dict[int, dict]:
+    """Magnet AXIOM Case.mfdb에서 지정한 hit_id 목록의 실제 artifact_name과 핵심 fragment를 조회한다."""
+    if not hit_ids:
+        return {}
+    if has_axiom_v10_schema(conn):
+        return fetch_axiom_v10_hits(conn, hit_ids)
+    uniq = sorted({int(x) for x in hit_ids if int(x) > 0})
+    placeholders = ",".join("?" for _ in uniq)
+    rows = conn.execute(
+        f"SELECT h.id, h.source_id, a.name FROM hit h "
+        f"JOIN artifact_version av ON h.artifact_version_id = av.id "
+        f"JOIN artifact a ON av.artifact_id = a.id WHERE h.id IN ({placeholders})",
+        uniq,
+    ).fetchall()
+    out: dict[int, dict] = {}
+    for hid, sid, aname in rows:
+        frags = conn.execute(
+            "SELECT name, value FROM hit_fragment WHERE hit_id = ? LIMIT 6", (hid,)
+        ).fetchall()
+        out[int(hid)] = {
+            "hit_id": int(hid),
+            "source_id": int(sid) if sid is not None else None,
+            "artifact_name": str(aname),
+            "fragments": {str(k): str(v)[:120] for k, v in frags if v is not None and str(v).strip()},
+        }
+    return out
+
+
+def verify_report_axiom_citations(conn: sqlite3.Connection, report_text: str) -> dict:
+    """보고서 본문에 인용된 hit <ID>와 인접 아티팩트 분류명을 Case.mfdb 원본과 1:1 대조한다."""
+    canonical_names = get_axiom_canonical_artifacts(conn)
+    canon_map = {n.casefold(): n for n in canonical_names}
+    search_terms: list[tuple[str, str]] = [(n, n) for n in canonical_names]
+    for alias, target in _AXIOM_ALIASES.items():
+        resolved = canon_map.get(target.casefold(), target)
+        search_terms.append((alias, resolved))
+    search_terms.sort(key=lambda x: len(x[0]), reverse=True)
+    term_res = [
+        (re.compile(rf"(?<![A-Za-z0-9_\\/]){re.escape(term)}(?![A-Za-z0-9_\\/])", re.IGNORECASE), canon)
+        for term, canon in search_terms
+    ]
+
+    line_citations: list[tuple[int, str, list[tuple[int, int]]]] = []
+    all_hit_ids: set[int] = set()
+    in_correction_sec = False
+    for idx, line in enumerate(report_text.splitlines(), 1):
+        if line.lstrip().startswith("#"):
+            in_correction_sec = bool(_CORRECTION_LINE_RE.search(line))
+        cits: list[tuple[int, int]] = []
+        for m in _HIT_CITATION_RE.finditer(line):
+            g_start = m.start()
+            first_id = int(m.group(1))
+            cits.append((g_start, first_id))
+            all_hit_ids.add(first_id)
+            tail = m.group(2) or ""
+            for tm in re.finditer(r"(\d+)", tail):
+                tid = int(tm.group(1))
+                cits.append((g_start, tid))
+                all_hit_ids.add(tid)
+        if cits and not in_correction_sec and not _CORRECTION_LINE_RE.search(line):
+            line_citations.append((idx, line, cits))
+
+    verified = verify_axiom_hits(conn, sorted(all_hit_ids))
+    missing_hits = sorted(all_hit_ids - set(verified.keys()))
+    mismatches: list[dict] = []
+
+    for line_no, line, cits in line_citations:
+        spans: list[tuple[int, int, str]] = []
+        for rx, canon in term_res:
+            for m in rx.finditer(line):
+                s, e = m.span()
+                if not any(es <= s < ee or es < e <= ee for es, ee, _ in spans):
+                    spans.append((s, e, canon))
+        if not spans:
+            continue
+        spans.sort(key=lambda x: x[0])
+        for g_start, hid in cits:
+            if hid not in verified:
+                continue
+            actual = verified[hid]["artifact_name"]
+            preceding = [
+                sp for sp in spans
+                if sp[1] <= g_start and re.fullmatch(r"[\s`*':(-]*", line[sp[1] : g_start])
+            ]
+            if not preceding:
+                continue
+            chosen = preceding[-1][2]
+            if not _artifact_compatible(chosen, actual):
+                mismatches.append({
+                    "line": line_no,
+                    "hit_id": hid,
+                    "claimed_artifact": chosen,
+                    "actual_artifact": actual,
+                })
+
+    return {
+        "ok": len(missing_hits) == 0 and len(mismatches) == 0,
+        "total_cited_hits": len(all_hit_ids),
+        "verified_hits_count": len(verified),
+        "missing_hits": missing_hits,
+        "mismatches": mismatches,
+        "qa_ids": {str(hid): info["artifact_name"] for hid, info in sorted(verified.items())},
+        "hits": verified,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description="압수 SQLite DB 읽기전용 쿼리 + 잔존 흔적 검색")
+    import json
+
+    p = argparse.ArgumentParser(description="압수 SQLite DB 읽기전용 쿼리 + 잔존 흔적 검색 + AXIOM hit 검증")
     p.add_argument("db", help="SQLite DB 파일 경로")
     p.add_argument("--sql", default="", help="실행할 SELECT 문 (읽기전용 강제)")
     p.add_argument("--list-schema", action="store_true", help="테이블·열·행 수 나열")
     p.add_argument("--keywords", default="", help="쉼표 구분 잔존 흔적 키워드")
+    p.add_argument("--verify-hits", default="", help="쉼표 구분 AXIOM hit_id 목록 실존·분류명 조회")
+    p.add_argument("--verify-report", default="", help="보고서(.md) 내 인용된 hit_id와 아티팩트 분류명을 DB 원본과 대조")
+    p.add_argument("--export-axiom-counts", default="", help="AXIOM 전체 아티팩트 건수(artifact_counts.txt) 저장 디렉터리")
+    p.add_argument("--scan-insider-prompts", action="store_true", help="AI 프롬프트(Claude Command History) 배임·은폐 지시 스캔")
+    p.add_argument("--scan-git-dir", default="", help="마운트된 디렉터리 내 원본 .git(원격푸시 vs 로컬커밋 분리) 및 UTF-16 스캔")
+    p.add_argument("--json", action="store_true", help="검증·스캔 결과를 JSON으로 출력")
     p.add_argument("--format", choices=("md", "csv"), default="md", help="쿼리 결과 출력 형식 (기본 md)")
     p.add_argument("--limit", type=int, default=1000, help="쿼리 최대 행 수 (기본 1000)")
     p.add_argument("--output", "-o", default="", help="보고서 저장 경로 (미지정 시 stdout)")
     args = p.parse_args(argv)
 
+    if args.scan_git_dir and not os.path.isfile(args.db):
+        res = scan_git_and_utf16(args.scan_git_dir)
+        out_str = json.dumps(res, ensure_ascii=False, indent=2)
+        if args.output:
+            with open(args.output, "w", encoding="utf-8") as f:
+                f.write(out_str + "\n")
+        else:
+            print(out_str)
+        return 0
+
     if not os.path.isfile(args.db):
         print(f"error: DB 파일을 찾을 수 없습니다: {args.db}", file=sys.stderr)
         return 2
-    if not (args.sql or args.list_schema or args.keywords):
-        print("error: --sql, --list-schema, --keywords 중 하나는 지정해야 합니다.", file=sys.stderr)
+    if not (
+        args.sql or args.list_schema or args.keywords or args.verify_hits
+        or args.verify_report or args.export_axiom_counts or args.scan_insider_prompts or args.scan_git_dir
+    ):
+        print(
+            "error: 실행 옵션(--sql, --list-schema, --keywords, --verify-hits, --verify-report 등)을 지정해야 합니다.",
+            file=sys.stderr,
+        )
         return 2
 
     try:
@@ -345,6 +514,67 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
+        if args.export_axiom_counts or args.scan_insider_prompts or args.scan_git_dir:
+            payload: dict = {}
+            if args.export_axiom_counts:
+                counts = export_axiom_counts(conn, args.export_axiom_counts)
+                payload["artifact_counts"] = len(counts)
+            if args.scan_insider_prompts:
+                payload["insider_prompts"] = scan_insider_prompts(conn)
+            if args.scan_git_dir:
+                payload["git_and_utf16"] = scan_git_and_utf16(args.scan_git_dir)
+            out_str = json.dumps(payload, ensure_ascii=False, indent=2)
+            if args.output:
+                with open(args.output, "w", encoding="utf-8") as f:
+                    f.write(out_str + "\n")
+            else:
+                print(out_str)
+            return 0
+        if args.verify_hits or args.verify_report:
+            if args.verify_report:
+                if not os.path.isfile(args.verify_report):
+                    print(f"error: 보고서 파일을 찾을 수 없습니다: {args.verify_report}", file=sys.stderr)
+                    return 2
+                with open(args.verify_report, "r", encoding="utf-8", errors="replace") as rf:
+                    rep_text = rf.read()
+                res = verify_report_axiom_citations(conn, rep_text)
+            else:
+                req_ids = [int(x.strip()) for x in re.split(r"[\s,]+", args.verify_hits) if x.strip().isdigit()]
+                verified = verify_axiom_hits(conn, req_ids)
+                missing = sorted(set(req_ids) - set(verified.keys()))
+                res = {
+                    "ok": len(missing) == 0,
+                    "total_cited_hits": len(set(req_ids)),
+                    "verified_hits_count": len(verified),
+                    "missing_hits": missing,
+                    "mismatches": [],
+                    "hits": verified,
+                }
+            if args.json:
+                out_str = json.dumps(res, ensure_ascii=False, indent=2)
+            else:
+                lines = [
+                    f"[{'PASS' if res['ok'] else 'FAIL'}] AXIOM hit 검증: "
+                    f"인용 {res['total_cited_hits']}건 중 {res['verified_hits_count']}건 실존 확인"
+                ]
+                for mid in res["missing_hits"]:
+                    lines.append(f"  - MISSING: hit {mid} (DB에 존재하지 않음)")
+                for mm in res["mismatches"]:
+                    lines.append(
+                        f"  - MISMATCH (line {mm['line']}): hit {mm['hit_id']} "
+                        f"보고서 표기='{mm['claimed_artifact']}' != DB 실제='{mm['actual_artifact']}'"
+                    )
+                for hid, info in sorted(res["hits"].items()):
+                    lines.append(f"  - hit {hid} (source_id={info['source_id']}): [{info['artifact_name']}] {info['fragments']}")
+                out_str = "\n".join(lines)
+            if args.output:
+                os.makedirs(os.path.dirname(os.path.abspath(args.output)) or ".", exist_ok=True)
+                with open(args.output, "w", encoding="utf-8") as f:
+                    f.write(out_str + "\n")
+            else:
+                print(out_str)
+            return 0 if res["ok"] else 1
+
         schema: list[dict] = []
         query_block = ""
         if args.list_schema:

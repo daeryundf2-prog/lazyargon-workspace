@@ -21,6 +21,11 @@ description: "웹 채증 스킬 — playwright MCP로 게시물·댓글·SNS·�
   (편집본은 원본과 별도 파일로만 만든다).
 - URL 표시줄·시계가 화면에 보이는 브라우저 전체 캡처는 신뢰도를 높인다.
 - 동적 상호작용 증명(Cursor-Synced Recording): Vercel agent-browser 연동 시 마우스 이동 궤적과 클릭 타임스탬프를 비디오 프레임 단위로 동기화 기록하여 "분석관이 실제로 페이지를 확인·조작했음"에 대한 사법적 증거력을 강화한다.
+- **SPA 동적 웹 채증 및 Playwright 런타임 안정성 가이드 (로컬 실무 세션 625898fc 교훈)**:
+  - 셀렉터 구문 단순화: 비표준 CSS 셀렉터(예: `button:=...`) 작성을 금지하고, 텍스트·ARIA role·표준 속성 선택자를 사용한다.
+  - DOM 분리(Stale Element) 및 네비게이션 컨텍스트 소멸 방지: 동적 SPA 페이지 이동 직후에는 `waitForLoadState('networkidle')` 또는 `waitForSelector`로 DOM 안정을 기다린 뒤 조작한다.
+  - unhandled 30초 locator 타임아웃 및 MCP 3분 deadline 프리징 방지: 무한 재시도를 금지하고 실패 시 DOM 스냅샷을 1회 재취득 후 단 1회만 재시도한다.
+
 
 ## 2단 — 인증 (캡처 직후, 결정적)
 

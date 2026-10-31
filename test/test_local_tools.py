@@ -324,6 +324,49 @@ class CrimeScheduleXlsxAndReportGuardTests(unittest.TestCase):
             self.assertNotIn(self_hash, hashes)
             self.assertIn(pin_hash, hashes)
 
+    def test_axiom_hit_verification_and_mismatch_detection(self):
+        import sqlite3
+        qdb = load_module("query_evidence_db", "scripts/query_evidence_db.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            case_dir = Path(tmp) / "#977_Case"
+            case_dir.mkdir()
+            db_path = case_dir / "Case.mfdb"
+            conn = sqlite3.connect(db_path)
+            conn.executescript(
+                """
+                CREATE TABLE artifact (id INTEGER PRIMARY KEY, name TEXT);
+                CREATE TABLE artifact_version (id INTEGER PRIMARY KEY, artifact_id INTEGER);
+                CREATE TABLE hit (id INTEGER PRIMARY KEY, source_id INTEGER, artifact_version_id INTEGER);
+                CREATE TABLE hit_fragment (hit_id INTEGER, name TEXT, value TEXT);
+                INSERT INTO artifact VALUES (1, 'USB Devices'), (2, 'LNK Files'), (3, 'Jump Lists'), (4, 'Windows Event Logs - Storage Device Events');
+                INSERT INTO artifact_version VALUES (10, 1), (20, 2), (30, 3), (40, 4);
+                INSERT INTO hit VALUES (448773, 100, 10), (2084206, 200, 20), (1474102, 300, 30), (788476, 400, 40);
+                INSERT INTO hit_fragment VALUES (448773, 'Device Name', 'KLEVV CRAS C925'), (2084206, 'Linked Path', 'F:\\index.html');
+                """
+            )
+            conn.close()
+
+            # 1) Valid report citations pass
+            good_rep = case_dir / "good.md"
+            good_rep.write_text(
+                "| 구분 | 근거 |\n|---|---|\n"
+                "| 디스크 | `USB Devices` `hit 448773`; `Storage Device Events` `hit 788476` |\n"
+                "| 바로가기 | `LNK Files` `hit 2084206`, `Jump Lists` `hit 1474102` |\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(qdb.main([str(db_path), "--verify-report", str(good_rep), "--json"]), 0)
+            self.assertEqual(verify_rep.main([str(good_rep), "--axiom-db", str(db_path), "--json"]), 0)
+
+            # 2) Compaction-style cross-row artifact mismatch (Jump Lists vs LNK Files) & missing hit_id fail
+            bad_rep = case_dir / "bad.md"
+            bad_rep.write_text(
+                "- `Jump Lists` `hit 2084206` 열람\n"
+                "- `Storage Device Events` `hit 999999` 연결\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(qdb.main([str(db_path), "--verify-report", str(bad_rep), "--json"]), 1)
+            self.assertEqual(verify_rep.main([str(bad_rep), "--axiom-db", str(db_path), "--json"]), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

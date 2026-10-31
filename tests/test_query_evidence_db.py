@@ -170,3 +170,64 @@ def test_sql_comment_tokenizer_preserves_strings_and_identifiers():
         qe.check_statement("SELECT /* unterminated")
     with pytest.raises(ValueError):
         qe.check_statement("SELECT 'unterminated")
+
+
+
+def test_axiom_v10_schema_and_insider_prompts(tmp_path):
+    db = tmp_path / "Case.mfdb"
+    con = sqlite3.connect(str(db))
+    con.executescript("""
+        CREATE TABLE artifact_version (artifact_version_id TEXT, artifact_name TEXT);
+        CREATE TABLE scan_artifact_hit (hit_id INT, artifact_version_id TEXT);
+        CREATE TABLE hit_location (hit_id INT, source_id INT, location_value TEXT, sort_order INT, deleted_source_file INT);
+        CREATE TABLE fragment_definition (fragment_definition_id TEXT, name TEXT);
+        CREATE TABLE hit_fragment_string (hit_fragment_id INT, hit_id INT, value TEXT, fragment_definition_id TEXT);
+        CREATE TABLE fragment_content (hit_fragment_id INT, content TEXT);
+        CREATE TABLE hit_fragment_date (hit_fragment_id INT, hit_id INT, formatted_value TEXT, fragment_definition_id TEXT);
+        CREATE TABLE hit_fragment_int (hit_fragment_id INT, hit_id INT, value INT, fragment_definition_id TEXT);
+        INSERT INTO artifact_version VALUES ('av1', 'Claude Command History'), ('av2', 'USB Devices');
+        INSERT INTO scan_artifact_hit VALUES (437784, 'av1'), (448703, 'av2');
+        INSERT INTO hit_location VALUES (437784, 234987, 'Line: 1', 0, 0), (448703, 213744, 'Reg', 0, 0);
+        INSERT INTO fragment_definition VALUES ('fd1', 'Message Content'), ('fd2', 'Serial Number');
+        INSERT INTO hit_fragment_string VALUES (1, 437784, '개발 완료되었을때 코드가 넘어가지 않게 설계', 'fd1');
+        INSERT INTO hit_fragment_string VALUES (2, 448703, '04010824021922085250', 'fd2');
+    """)
+    con.commit()
+    con.close()
+
+    conn = qe.open_readonly(str(db))
+    rep_ok = "Claude Command History hit 437784 및 USB Devices hit 448703 확인."
+    res_ok = qe.verify_report_axiom_citations(conn, rep_ok)
+    assert res_ok["ok"] is True
+    assert res_ok["qa_ids"] == {"437784": "Claude Command History", "448703": "USB Devices"}
+
+    rep_bad = "USB Devices hit 437784 연결됨."
+    res_bad = qe.verify_report_axiom_citations(conn, rep_bad)
+    assert res_bad["ok"] is False
+    assert res_bad["mismatches"][0]["actual_artifact"] == "Claude Command History"
+
+    prompts = qe.scan_insider_prompts(conn)
+    assert prompts["category_counts"]["withholding_breach"] == 1
+    conn.close()
+
+
+def test_scan_git_and_utf16_separates_push_and_local_commit(tmp_path):
+    repo = tmp_path / "workspace-hoban"
+    git_dir = repo / ".git"
+    (git_dir / "logs" / "refs" / "remotes" / "origin").mkdir(parents=True)
+    (git_dir / "config").write_text('[remote "origin"]\n\turl = https://github.com/gudc0831/workspace-hoban.git\n', encoding="utf-8")
+    push_line = "0" * 40 + " " + "a" * 40 + " gudc0831 <gudc083111@gmail.com> 1792569470 +0900\tupdate by push\n"
+    (git_dir / "logs" / "refs" / "remotes" / "origin" / "main").write_text(push_line, encoding="utf-8")
+    head_lines = (
+        push_line.replace("update by push", "commit: initial")
+        + "a" * 40 + " " + "b" * 40 + " gudc0831 <gudc083111@gmail.com> 1792667699 +0900\tcommit: local only\n"
+    )
+    (git_dir / "logs" / "HEAD").write_text(head_lines, encoding="utf-8")
+    (tmp_path / "file_list.txt").write_bytes("04_RECEIVED/a.dwg\n01_WORK/b.pdf\n".encode("utf-16"))
+
+    res = qe.scan_git_and_utf16(str(tmp_path))
+    assert res["repo_count"] == 1
+    assert res["total_remote_pushes"] == 1
+    assert res["total_local_commits"] == 2
+    assert res["repos"][0]["unpushed_local_commits"] == 1
+    assert res["utf16_files"][0]["received_04_count"] == 1

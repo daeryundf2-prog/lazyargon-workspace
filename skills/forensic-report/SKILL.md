@@ -26,6 +26,9 @@ description: "포렌식 감정서/보고서 초안. 측정값만 채운다. 의�
 - [ ] **임의 요약 콜아웃 및 자기검증 배지 삽입 금지**: 에이전트 임의의 파란색 요약 콜아웃 박스나 `[전수 검증 완료]`, `(N개 발언 전문 수록)` 등 자기검증 배지·메타 주석을 본문에 삽입하지 말 것
 - [ ] **대화록/녹취록 표 조판 및 인쇄 가독성 준수**: 대화록/녹취록 표에서 화자 이름 열에 `white-space: nowrap`을 적용해 3글자 성명이 두 줄로 깨지는 현상을 방지하고, 인쇄 가독성 기준(본문 `≥10pt`, 표 `≥9pt`)을 준수할 것
 - [ ] **Material-First 조립 및 5대 여백 불변 규칙 (`print-paged-media.md` §8)**: HTML/PDF 또는 마크다운 보고서를 통째로 한 번에 생성하지 말고, ① 범위·배제 규칙 잠금 → ② 결정적 스크립트 출력(`audit.json`, `events.json`, STT/OCR 원문)을 데이터 재료로 먼저 분리 확보 → ③ 개별 증거 표/타임라인 카드를 원자적 단위(`.exhibit-atomic`)와 **2단 서브행(`tbody.row-group > tr.row-main + tr.row-sub`, 64자 `SHA-256` 전폭 1줄 바 `≤95ch`, `word-break: break-all`로 셀 수직 공백 및 Chromium 자동 축소 차단)**으로 조립 → ④ `.a4-sheet`(`min-height: 267mm`) + `.sheet-footer`(`margin-top: auto`) 하단 앵커링 및 페이지별 PNG 시각 검수(`pdftoppm`) 순서로 작성할 것 (상세: `lazyargon/docs/material-first-design.md`)
+- [ ] **행위자 시간대 분리(직원 vs 사측 자체조사 구간) 및 3단계 증거 등급(`확정/정황/미확인`)**: 적발 직후 사측이 PC를 가동·백업한 구간은 직원 활동과 엄격히 분리(행위자 태그 명시)하여 증거 무결성 항변을 차단하고, 미이미징 디스크(예: 별도 HDD `D:`)나 미확보 외장매체 내부 본문은 `미확인`으로, 메타데이터 시계열 추론은 `정황`으로, 직접 증명된 아티팩트는 `확정`으로 구분 표기할 것
+- [ ] **원격 푸시(`logs/refs/remotes/**`) ↔ 로컬 커밋(`logs/HEAD`, `commit_msg*.txt`) 및 LNK 볼륨 시리얼(`VSN`) 구분**: 로컬 커밋이나 `GIT.EXE` Prefetch 실행을 원격 전송(Push)으로 오판하지 말고, LNK 타깃 경로가 `D:\...`라도 LNK 내부 `Volume Serial Number`가 본체 디스크가 아닌 외부 볼륨이면 본체 설치·보관으로 단정하지 말 것. 브라우저 히스토리도 일괄 가져오기(동일 분·초 대량 생성) 여부를 먼저 확인할 것
+- [ ] **내부자 사건 360° 점검 (배임 프롬프트·겸업·사측 역리스크·부정 결과 명시)**: 유출 경로 외에 ① AI 코딩 도구 프롬프트(`Claude Command History` 등)의 로직 제거·은폐 지시(`--scan-insider-prompts`), ② 개인 외부 인프라(Vercel/Cloudflare/숨고/학회 논문)·입사 전후 메모(`Microsoft Sticky Notes`), ③ 의뢰사 역리스크(전 직장 자료 반입, 크랙 SW, 평문 비밀번호), ④ 확인했으나 흔적이 없는 채널(이벤트 로그 1102/104, 와이핑 도구, 휴지통 등 부정 결과)을 함께 기재할 것
 
 서식: `templates/forensic_report_template.md`. 초안은 `invoke_subagent` `Model: "inherit"`, 선결론 점검은 `Model: "inherit"`.
 

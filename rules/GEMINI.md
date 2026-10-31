@@ -38,14 +38,16 @@ OpenCode `task(...)`, `model_tier`, `subagent_type`, Cursor `Task`, `view_file`�
 - **모델 유보는 결측이지 오류가 아니다**: 답을 거부·유보하거나 안전 필터가 걸리면 `미확인(모델 유보: <사유>)`로 적고 다음 항목으로 간다. 다른 표현으로 다시 물어 빈칸을 채우지 않는다.
 - **빈 보고서로 통과하지 않는다**: `verify_report.py`가 결측 비율(`unverified.ratio`)을 출력한다. 수치·해시·시각 항목의 절반 이상이 `미확인`이면 WARN(`--strict`에서는 FAIL)이며, 항목별로 왜 미확인인지(증거 부재 / 모델 유보 / 도구 미설치)를 적어야 통과한다.
 - **코드베이스 감사 수치는 실행 근거로만**: "N개 중 M개 결함" 류의 감사 결론은 직접 연 `파일:라인`과 실행한 명령 출력에서만 나온다. 모델이 센 개수는 측정값이 아니다.
-- **민감 증거 원문은 스크립트가 다룬다**: 성적·폭력·혐오 표현이 담긴 증거는 안전 필터가 차단할 수 있으므로 `parse_kakao.py`·`keyword_report.py`·`merge_timeline.py` 같은 결정적 스크립트에 맡기고, 모델은 원문을 길게 인용하지 않는다. 보고서에는 `증거 파일:행 번호`와 스크립트 출력 경로를 적는다. 차단되면 `미확인(모델 유보: 안전 필터)`로 적고 재요청하지 않는다. 막힌 대화는 범위 잠금 파일을 들고 새 대화에서 잇고, 반복 차단 시 세션을 Claude 5.5로 바꾼다. 메모리 덤프·PE 헤더(`memory-triage`, `forensic-mft-parser`)도 같은 필터에 걸릴 수 있다.
-- **비전 판독은 텍스트 증거가 아니다 (STT는 무조건 서버 전송)**: 이미지·프레임 속 글자·손글씨·계기판 수치는 `tesseract`/`local_ocr.py` 출력만 인용한다(모델 판독은 `모델 판독(미검증)` 표기, OCR 우선). STT는 내부 Whisper 대신 무조건 서버 STT(`yt-dlp` 자동자막·`local_stt.py` Google STT 서버 병렬 전송) 전사본만 인용한다.
-- **커버리지 주장은 감사 수신증으로만**: "전수/100% 커버리지" 결론은 `node scripts/coverage_audit.mjs --source <원문파일> --target <산출물…> --json <수신증.json>` 출력으로만 뒷받침한다(`--source` 필수, 원문 행→산출 위치 매핑 기록).
-- **부모 검증**: `forensic-report` 초안은 `Model: "inherit"`가 `python scripts/verify_report.py <보고서> --evidence <audit.json> --morph-grounding --high-fidelity`로 재검증한다 (`verify_report.py` 출력이 최종 판정 권한). `FAIL`이면 제출 금지.
+- **민감 증거 원문은 스크립트가 다룬다**: 성적·폭력 표현 증거는 안전 필터 차단 방지를 위해 스크립트에 맡기고 모델은 원문을 길게 인용하지 않는다. 차단 시 `미확인(모델 유보: 안전 필터)`로 기록하고 재요청하지 않는다. 반복 차단 시 Claude 5.5 세션으로 전환한다.
+- **비전 판독은 텍스트 증거가 아니다 (STT는 무조건 서버 전송)**: 이미지·프레임 글자·수치는 `tesseract`/`local_ocr.py` 출력만 인용한다(모델 판독은 `모델 판독(미검증)` 표기). 야간/저화질 번호판은 단순 OCR을 불신하며, 다중 프레임 스태킹(ECC)+IBP 초해상화+자동차등록번호판 고시 소거법만 인용한다. STT는 내부 Whisper 대신 무조건 서버 STT(`yt-dlp` 자동자막·`local_stt.py` Google STT 서버 병렬 전송) 전사본만 인용한다.
+- **SPA 동적 웹 채증 안정성**: 복잡한 SPA 채증 시 비표준 CSS 셀렉터를 금지하고 표준/ARIA 역할을 사용하며, 동적 네비게이션 직후 `waitForLoadState`로 DOM을 안정화하여 180초 MCP deadline 타임아웃 프리징을 차단한다.
+- **커버리지 주장은 감사 수신증으로만**: "전수/100% 커버리지" 결론은 `node scripts/coverage_audit.mjs --source <원문파일> --target <산출물…> --json <수신증.json>` 출력으로만 뒷받침한다(`--source` 필수).
+- **부모 검증**: `forensic-report` 초안은 `Model: "inherit"`가 `python scripts/verify_report.py <보고서> --evidence <audit.json> --morph-grounding --high-fidelity`로 재검증한다(`verify_report.py` 출력이 최종 판정 권한). `FAIL`이면 제출 금지.
 - **High-Fidelity 비파라메트릭 모드**: 포렌식 보고서 작성 시 `verify_report.py`에 `--high-fidelity`를 강제하며, 원본 증거와 `<evidence>` 태그 누락 또는 형태소 커버리지 70% 미달 시 즉시 차단한다.
 - **에이전트 메타 파일 가드 제외**: `.lazyargon/pins.md`, `.lazyargon/ulw-scope.md`, `claim-graph.md` 등 오케스트레이션·핀 파일은 `hallucination_guard.mjs` 검증 대상에서 제외되며 보고서·감정서 본문만 검증한다.
-- **안전 필터 무한루프 차단 및 모델 유보**: agy 1.4.4+에서 안전 필터 무한 무음 재시도가 차단되었으므로, 필터 발동 시 재요청 없이 `미확인(모델 유보: 안전 필터)`로 기록하고 다음 단계로 즉시 진행한다.
-- **암시적 캐시 보존**: 6,144토큰 이상 95% 캐시 할인을 유지하기 위해 시스템 규칙과 증거 원문 접두사는 상단에 고정하고 가변 메타데이터는 최하단에 배치한다.
+- **안전 필터 무한루프 차단 및 모델 유보**: agy 1.4.4+ 안전 필터 발동 시 재요청 없이 `미확인(모델 유보: 안전 필터)`로 기록하고 다음 단계로 진행한다.
+- **암시적 캐시 보존**: 6,144토큰 이상 95% 캐시 할인을 위해 시스템 규칙·증거 원문 접두사는 상단 고정하고 가변 메타데이터는 최하단에 배치한다.
+- **컴팩션 요약(`<CONTEXT_SUMMARY>`) 불신 및 AXIOM `hit_id`·볼륨 시리얼 실측 대조**: `<CONTEXT_SUMMARY>`는 1차 근거가 아니며 인접 행 `hit_id`·`artifact_name`을 오염시키므로 인용 전 `query_evidence_db.py --verify-hits/--verify-report`(`verify_report.py --axiom-db`)와 `.lazyargon/pins.md`로 재검증한다. 다중 디스크·파티션 환경은 볼륨 시리얼과 구 드라이브 후속 입출력을 대조하기 전까지 드라이브 문자 변경으로 단정하지 않는다.
 
 ## 스킬 라우팅
 
