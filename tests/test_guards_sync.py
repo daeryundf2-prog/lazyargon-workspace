@@ -143,6 +143,17 @@ def test_hallucination_guard_checks_any_text_file_next_to_evidence(tmp_path):
     assert "원본에 없는 인용" in proc.stderr
 
 
+def test_hallucination_guard_skips_files_inside_source_folder(tmp_path):
+    src = tmp_path / "evidence"
+    src.mkdir()
+    raw = src / "unified_log.txt"
+    raw.write_text('2026-10-31 09:00:00 | loginwindow "사건 보고서 작성용 원본"\n', encoding="utf-8")
+    payload = json.dumps({"toolCall": {"name": "write_to_file", "args": {"TargetFile": str(raw), "CodeContent": "보고서"}}}, ensure_ascii=False)
+    proc = run_node_script("hallucination_guard.mjs", stdin_payload=payload)
+    assert proc.returncode == 0, proc.stderr
+    assert "FAIL" not in proc.stderr
+
+
 def test_hooks_json_contains_legal_guard():
     hooks_data = json.loads((ROOT / "hooks.json").read_text(encoding="utf-8"))
     ptu = hooks_data.get("hooks", {}).get("PostToolUse", [])

@@ -398,6 +398,7 @@ function isAgentInternalFile(targetFile) {
 
 function shouldGuard(targetFile, rawTexts) {
 	if (isPluginInternalDoc(targetFile) || isAgentInternalFile(targetFile)) return false;
+	if (SOURCE_DIR_NAMES.includes(path.basename(path.dirname(path.resolve(targetFile))))) return false; // 자료 폴더 안 파일은 근거 원본이지 보고서가 아니다
 	const keywordHit = GUARD_KEYWORD_RE.test(rawTexts.join('\n'));
 	const reportExt = /\.(md|html|txt)$/i.test(targetFile);
 	// 경로 힌트는 basename에만 적용 — 디렉터리명/부분문자열 오탐 방지.
