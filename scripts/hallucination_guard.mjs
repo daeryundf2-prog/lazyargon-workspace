@@ -398,7 +398,9 @@ function isAgentInternalFile(targetFile) {
 
 function shouldGuard(targetFile, rawTexts) {
 	if (isPluginInternalDoc(targetFile) || isAgentInternalFile(targetFile)) return false;
-	if (SOURCE_DIR_NAMES.includes(path.basename(path.dirname(path.resolve(targetFile))))) return false; // 자료 폴더 안 파일은 근거 원본이지 보고서가 아니다
+	// 원본 자료 폴더(evidence/증거/자료/원본/sources/첨부) 안의 비보고서 파일은 근거 원본이다. analysis/분석 폴더는 보고서를 두는 곳이라 제외하지 않는다.
+	const RAW_SOURCE_DIRS = ['evidence', '증거', '자료', '원본', 'sources', 'attachments', '첨부'];
+	if (RAW_SOURCE_DIRS.includes(path.basename(path.dirname(path.resolve(targetFile)))) && !EXPLICIT_REPORT_NAME_RE.test(path.basename(targetFile)) && !/보고서|초안|draft|report/i.test(path.basename(targetFile))) return false;
 	const keywordHit = GUARD_KEYWORD_RE.test(rawTexts.join('\n'));
 	const reportExt = /\.(md|html|txt)$/i.test(targetFile);
 	// 경로 힌트는 basename에만 적용 — 디렉터리명/부분문자열 오탐 방지.

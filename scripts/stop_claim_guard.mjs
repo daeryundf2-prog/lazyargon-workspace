@@ -5,7 +5,7 @@
  *
  * 임무: 모델의 최종 메시지가 "완료/전수/100%/무결점/모두 통과" 류의 완료 선언을 하면서
  * 반증 가능한 증거(실행 명령, 테스트 수, 산출물 경로, 커밋 SHA)를 제시하지 않으면
- * stop 을 block 해 증거 첨부를 요구한다. "검증 완료" 보고가 사실과 다르던 사례
+ * stop 을 막고(Antigravity Stop 규격 decision "continue") 증거 첨부를 요구한다. "검증 완료" 보고가 사실과 다르던 사례
  * (순환 감사 "100% PASS", 문서화만 된 --plot-fft, 라우팅 미등록)의 재발 방지.
  *
  * 페이로드 규약 (start-work-continuation codex-hook.js 와 동일):
@@ -13,7 +13,7 @@
  *     last_assistant_message?: string, ... }
  * 차단 규약: stdout 에 {"decision":"continue","reason":"..."} 출력 + exit 0 (Antigravity Stop 계약: continue 만 루프 재진입, 그 외 값은 정지 허용).
  * 모드: 기본은 observe — 차단했을 판정을 <workspace>/.lazyargon/stop-guard.jsonl 에 기록만 하고 통과시킨다.
- *   LAZYARGON_STOP_GUARD=enforce (대소문자·양끝 공백 무시) 일 때만 실제로 block 한다 (오탐률을 잰 뒤 전환).
+ *   LAZYARGON_STOP_GUARD=enforce (대소문자·양끝 공백 무시) 일 때만 실제로 stop 을 막는다 (오탐률을 잰 뒤 전환).
  *   페이로드에 절대경로 워크스페이스가 없으면 ~/.lazyargon/stop-guard.jsonl 에 기록한다.
  *
  * 정직한 동작 규약:
