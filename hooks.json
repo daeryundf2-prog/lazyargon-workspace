@@ -30,15 +30,22 @@
           },
           {
             "type": "command",
-            "command": "node ./scripts/hallucination_guard.mjs",
+            "command": "node ./scripts/post_tool_feedback.mjs wrap node ./scripts/hallucination_guard.mjs",
             "timeout": 30
           },
           {
             "type": "command",
-            "command": "node ./scripts/legal_factuality_guard.mjs",
+            "command": "node ./scripts/post_tool_feedback.mjs wrap node ./scripts/legal_factuality_guard.mjs",
             "timeout": 5
           }
         ]
+      }
+    ],
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "node ./scripts/post_tool_feedback.mjs inject",
+        "timeout": 5
       }
     ]
   }

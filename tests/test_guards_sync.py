@@ -103,6 +103,22 @@ def test_legal_factuality_guard_passes_clean_legal_doc(tmp_path):
     assert proc.returncode == 0
 
 
+def test_post_tool_feedback_queues_failure_and_injects_once(tmp_path):
+    env = {"LAZYARGON_FEEDBACK_DIR": str(tmp_path)}
+    payload = json.dumps({"conversationId": "conv-fb"})
+    failing = ["wrap", NODE, "-e", "process.stderr.write('GUARD BROKE'); process.exit(1)"]
+    proc = run_node_script("post_tool_feedback.mjs", failing, stdin_payload=payload, env=env)
+    assert proc.returncode == 0
+    assert json.loads(proc.stdout) == {}
+    assert "GUARD BROKE" in (tmp_path / "conv-fb.jsonl").read_text(encoding="utf-8")
+
+    first = run_node_script("post_tool_feedback.mjs", ["inject"], stdin_payload=payload, env=env)
+    assert "GUARD BROKE" in json.loads(first.stdout)["injectSteps"][0]["ephemeralMessage"]
+    assert not (tmp_path / "conv-fb.jsonl").exists()
+    second = run_node_script("post_tool_feedback.mjs", ["inject"], stdin_payload=payload, env=env)
+    assert json.loads(second.stdout) == {}
+
+
 def test_hooks_json_contains_legal_guard():
     hooks_data = json.loads((ROOT / "hooks.json").read_text(encoding="utf-8"))
     ptu = hooks_data.get("hooks", {}).get("PostToolUse", [])
