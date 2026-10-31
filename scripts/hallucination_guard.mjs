@@ -460,6 +460,13 @@ function evidenceCandidates(targetFile) {
 	return candidates.filter((p) => fs.existsSync(p));
 }
 
+// 원본 자료 자동 탐색: 보고서 옆 자료 폴더(카톡·녹취·OCR 텍스트, 첨부 파일, 분석 산출물). 인용·첨부 대조 근거다.
+const SOURCE_DIR_NAMES = ['evidence', '증거', '자료', '원본', 'sources', 'materials', 'attachments', '첨부', 'analysis', '분석'];
+function sourceCandidates(targetFile) {
+	const dir = path.dirname(path.resolve(targetFile));
+	return SOURCE_DIR_NAMES.map((n) => join(dir, n)).filter((p) => fs.existsSync(p) && fs.statSync(p).isDirectory());
+}
+
 // timeline 자동 탐색: 보고서 옆/작업 디렉터리의 timeline json — 시각 grounding.
 // 여러 개 있으면 보고서와 가장 가까운(같은 디렉터리) 것부터 전달한다.
 function timelineCandidates(targetFile) {
@@ -578,6 +585,7 @@ async function main() {
 	if (ledger) {
 		args.push('--claim-ledger', ledger);
 	}
+	args.push('--require-sources', '--sources', ...sourceCandidates(targetFile));
 
 	const { res, spawnError, timedOut, attempts } = runVerify(args);
 

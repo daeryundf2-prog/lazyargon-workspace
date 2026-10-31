@@ -45,10 +45,25 @@ description: "포렌식 감정서/보고서 초안. 측정값만 채운다. 의�
 8. **불가능한 사법 절차 날조 차단 (Section 5.1 #4)**: `대검찰청의 약식명령 청구`, `경찰의 영장 직접 청구`, `경찰의 직접 기소`, `헌법재판소의 징역형 선고` 등 실정법상 성립 불가능한 절차를 장문 복문 수식어와 무관하게 기계적으로 차단합니다.
 9. **학술 논문 및 저널 날조 차단 (Section 5.1 #3)**: 가짜 학술지/논문집(`대한인공지능법학회지`, `한국사이버포렌식학회논문집` 등) 및 미래 연도 학술 논문 인용 날조를 기계적으로 차단합니다.
 
+## 원본 자료 1:1 대조 (의뢰인 제출 전 필수)
+
+보고서 옆 `evidence/`(또는 `증거/`, `자료/`, `첨부/`, `analysis/`)에 원본을 둔다. 가드가 이 폴더를 자동으로 찾아 `scripts/source_grounding.py`로 대조하며, 아래 중 하나라도 어기면 FAIL이다.
+
+- 인용부호(`"…"`, `“…”`, `「…」`, `<evidence>`) 안 문장은 원본 텍스트에 글자 그대로 있어야 한다. 요약·의역은 인용부호 없이 쓴다.
+- 발언자는 원본의 화자와 같아야 한다.
+- `날짜 시:분` 시각은 원본 또는 타임라인에 있어야 한다.
+- `N건/개/회/통/명`은 원본이나 `analysis/`의 집계 출력(스크립트로 산출한 JSON/CSV)에 값이 있어야 한다. 직접 센 수치는 쓰지 않는다.
+- 첨부·증거로 적은 파일명은 자료 폴더에 실제로 있어야 한다.
+- 이미지·음성·PDF는 글자를 대조할 수 없다. OCR/STT/내보내기 텍스트를 같은 폴더에 둔다. 없으면 해당 내용은 `미확인`으로 적는다.
+
+```bash
+python scripts/source_grounding.py "보고서초안.md" --sources evidence analysis --timeline events.json
+```
+
 ```bash
 # 부모가 반드시 재실행하는 검증 (High-Fidelity 비파라메트릭 모드)
 python skills/forensic-audit/scripts/audit_timestamps.py "증거파일" --json > audit.json  # 측정
-python scripts/verify_report.py "보고서초안.md" --evidence audit.json --timeline events.json --morph-grounding --high-fidelity --strict --json
+python scripts/verify_report.py "보고서초안.md" --evidence audit.json --timeline events.json --sources evidence analysis --require-sources --morph-grounding --high-fidelity --strict --json
 # exit 1이면 금지문구/근거없는 해시/미지원 조문/High-Fidelity 미달 → 수정 없이 제출 금지
 
 # 포렌식 사실성 종합 헬스체크 (Section 5.1 및 7-8 전수 10대 카테고리 100점 감사)

@@ -149,6 +149,8 @@ def main(argv=None):
     parser.add_argument("--allow-historical", action="store_true", help="역사적 부처명 인용 허용 (오류 대신 경고 처리)")
     parser.add_argument("--morph-grounding", action="store_true", help="Kiwi 형태소 기반 증거-보고서 용어 일치도 검증 (Section 5.2)")
     parser.add_argument("--high-fidelity", action="store_true", help="Local High-Fidelity gate: require evidence files and <evidence> tags plus morpheme overlap (no Vertex API)")
+    parser.add_argument("--sources", nargs="*", action="extend", default=[], help="원본 자료 폴더/파일 (카톡·녹취·OCR 텍스트, 첨부 파일) — 인용·화자·시각·건수·첨부 1:1 대조")
+    parser.add_argument("--require-sources", action="store_true", help="자료가 없어도 대조를 수행해, 인용/첨부가 있는데 자료가 없으면 FAIL")
     parser.add_argument("--json", action="store_true", help="Output JSON result")
     parser.add_argument("--strict", action="store_true", help="Fail with exit 1 if warnings are detected")
     args = parser.parse_args(argv)
@@ -442,6 +444,12 @@ def main(argv=None):
             p = Path(ep)
             if p.is_file():
                 combined_ev_text += "\n" + p.read_text(encoding="utf-8", errors="replace")
+        if args.sources:
+            try:
+                from scripts.source_grounding import collect_sources
+            except ImportError:
+                from source_grounding import collect_sources
+            combined_ev_text += "\n" + "\n".join(collect_sources(args.sources)[1].values())
 
         for quote in evidence_matches:
             q_strip = quote.strip()
@@ -460,6 +468,17 @@ def main(argv=None):
                     "--evidence 파일이 제공되지 않았거나 비어 있습니다. 증거 파일을 지정하십시오."
                 )
 
+    # 5-4-1) 원본 자료 1:1 대조: <evidence> 태그 밖의 인용부호 발언, 화자, 시각, 건수, 첨부 파일 실재.
+    if args.sources or args.require_sources:
+        try:
+            from scripts.source_grounding import check as check_source_grounding
+        except ImportError:
+            from source_grounding import check as check_source_grounding
+        tl_text = ""
+        if args.timeline and Path(args.timeline).is_file():
+            tl_text = Path(args.timeline).read_text(encoding="utf-8", errors="replace")
+        grounding = check_source_grounding(text, args.sources, tl_text)
+        errors.extend(f"[원본 대조] {e}" for e in grounding["errors"])
     # 5-5) Local High-Fidelity 비파라메트릭 게이트 (Section 4.2; Vertex API 호출 없음)
     if args.high_fidelity:
         if not args.evidence:
