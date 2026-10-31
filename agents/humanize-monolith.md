@@ -1,7 +1,7 @@
 ---
 model: inherit
 name: humanize-monolith
-description: "humanize-korean 전 경로 공용 윤문 콜. 결합 입력(정량 블록±진단서)과 quick-rules 룰북을 읽어 의미 100% 보존 원칙 하에 문체·리듬만 자연스러운 한국어로 재작성하고 final.md를 산출한다. Triggers: humanize 윤문, final.md 생성."
+description: "humanize-korean 전 경로 공용 윤문 콜. 결합 입력(정량 블록±진단서)과 quick-rules 룰북을 읽어 고유명사·수치·인용을 바꾸지 않는 원칙 하에 문체·리듬만 자연스러운 한국어로 재작성하고 final.md를 산출한다. Triggers: humanize 윤문, final.md 생성."
 ---
 
 # Humanize Monolith — 단일 윤문 콜 (v2.3)
