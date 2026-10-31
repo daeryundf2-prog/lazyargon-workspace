@@ -71,6 +71,60 @@ def test_grounded_report_passes(case: Path):
 
 
 @pytest.mark.parametrize(
+    "body,needle",
+    [
+        ("김철수는 '돈을 이미 보냈다'라고 했다.", "원본에 없는 인용"),
+        ("김철수는 《돈을 이미 보냈다》라고 했다.", "원본에 없는 인용"),
+        ("> 2026-03-12 14:09 김철수: 돈을 이미 보냈다", "원본에 없는 인용"),
+        ("```\n김철수 : 돈을 이미 보냈다\n```", "원본에 없는 인용"),
+        ("| 시각 | 화자 | 발언 |\n|---|---|---|\n| 2026-03-12 14:07 | 김철수 | 언제까지 줄 건데 |", "화자 불일치"),
+        ('김철수는 "돈을 이미\n보냈다"라고 했다.', "원본에 없는 인용"),
+        ('<p>김철수는 "돈을 <b>이미</b> 보냈다"라고 했다.</p>', "원본에 없는 인용"),
+        ('김철수는 `"돈을 이미 보냈다"`라고 했다.', "원본에 없는 인용"),
+        ('2026-03-12 14:05 김철수는 "내일 꼭 줄게"라고 했다.', "시각-발언 불일치"),
+        ("3월 12일 14:30에 메시지가 왔다.", "없는 시각"),
+        ("2026.03.12 14:30 메시지.", "없는 시각"),
+        ("메시지는 총 1532 건이다.", "근거 없는 수치"),
+        ("김철수는 7차례 연락했다.", "근거 없는 수치"),
+        ("통화는 42분간 이어졌다.", "근거 없는 수치"),
+        ("김철수는 300만원을 요구했다.", "근거 없는 금액"),
+        ('김철수는 "돈을 이미 보냈다"라고 말했다(일부 미확인).', "원본에 없는 인용"),
+        ("메시지는 총 1,532건이다(미확인 포함).", "근거 없는 수치"),
+    ],
+)
+def test_adversarial_forms_are_errors(case: Path, body: str, needle: str):
+    res = run(write(case, f"# 보고서\n{body}\n"), str(case / "evidence"))
+    assert any(needle in e for e in res["errors"]), res["errors"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "「개인정보 보호법」 제17조와 「민법」 제750조를 검토했다.",
+        '금전소비대차 계약(이하 "이 사건 계약"이라 한다)을 검토했다.',
+        "The suspect's phone and the victim's laptop were imaged.",
+        "증거 파일은 kakao_chat.txt 이다.",
+        "> 2026년 3월 12일 오후 2:09, 김철수 : 내일 꼭 줄게",
+        "| 시각 | 화자 | 발언 |\n|---|---|---|\n| 2026-03-12 14:09 | 김철수 | 내일 꼭 줄게 |",
+        "| 증거번호 | 내용 |\n|---|---|\n| 각1 | 카카오톡 대화 캐처 |",
+        '김철수는 "내일 꼭\n줄게"라고 했다.',
+        "3월 12일 14:09 메시지를 확인했다.",
+    ],
+)
+def test_legitimate_forms_pass(case: Path, body: str):
+    res = run(write(case, f"# 보고서\n{body}\n"), str(case / "evidence"))
+    assert res["verdict"] == "PASS", res["errors"]
+
+
+def test_money_and_counts_match_by_unit_or_matching_key(case: Path):
+    (case / "evidence" / "counts.json").write_text('{"messages": 4, "speakers": 2, "amount_krw": 5000000}', encoding="utf-8")
+    ok = run(write(case, "# 보고서\n메시지는 4건, 화자는 2명, 요구액은 500만원이다.\n"), str(case / "evidence"))
+    assert ok["verdict"] == "PASS", ok["errors"]
+    bad = run(write(case, "# 보고서\n화자는 4명이다.\n"), str(case / "evidence"))
+    assert any("근거 없는 수치" in e for e in bad["errors"]), bad["errors"]
+
+
+@pytest.mark.parametrize(
     "line",
     [
         '이영희는 김철수에게 "내일 꼭 줄게"라고 보냈다.',

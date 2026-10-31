@@ -603,7 +603,7 @@ def main(argv=None):
                 print(f"  - WARN: {w}", file=sys.stderr)
             print(f"[HINT] 수정 후 재실행: python scripts/verify_report.py {report_path} --evidence audit.json --json", file=sys.stderr)
         elif warnings:
-            print(f"[WARN] {len(warnings)} warnings (통과하나 부모가 Model pro로 대조 필요)")
+            print(f"[WARN] {len(warnings)} warnings (통과, 각 경고를 원본과 대조해 확인할 것)")
             for w in warnings:
                 print(f"  - {w}")
             if args.strict:

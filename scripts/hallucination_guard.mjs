@@ -410,6 +410,7 @@ function shouldGuard(targetFile, rawTexts) {
 	const reportPathHint = /(?:^|[-_])(?:report|summary|findings|notes|draft|analysis|opinion)(?:[-_\.]|$)/i.test(base)
 		|| /보고서|감정서|소견서|의견서|진단서|확인서|분석서|결과서|초안|요약|기록/.test(base);
 	if (keywordHit && reportExt) return true;
+	if (reportExt && sourceCandidates(targetFile).length > 0) return true;
 	if (reportPathHint && reportExt) return true;
 	if (reportExt && fs.existsSync(targetFile)) {
 		try {
@@ -622,7 +623,7 @@ async function main() {
 	if (res.status !== 0) {
 		const out = ((res.stderr || '') + '\n' + (res.stdout || '')).toString().trim();
 		console.error(`[HALLUCINATION GUARD] 보고서 검증 FAIL — "${path.basename(targetFile)}" (PostToolUse 사후 게이트, 보고서/검토해줘 트리거)`);
-		console.error(out.slice(0, 1200));
+		console.error(out.slice(0, 3500));
 		console.error('[HINT] 금지문구 제거, 해시는 audit.json / .lazyforensic/audit_trail.jsonl 근거만 사용, 없으면 미확인/미측정으로 둘 것. 수정 후 재시도.');
 		console.error(`[CMD] python scripts/verify_report.py "${targetFile}" --evidence <audit.json|audit_trail.jsonl> --json`);
 		process.stdout.write(JSON.stringify({ decision: 'block', reason: `[HALLUCINATION GUARD] 보고서 검증 FAIL — ${path.basename(targetFile)}` }) + '\n');
@@ -630,7 +631,7 @@ async function main() {
 	}
 
 	if (res.stdout && res.stdout.includes('[WARN]')) {
-		console.error(`[HALLUCINATION GUARD] WARN — ${path.basename(targetFile)}: ${res.stdout.slice(0, 600)}`);
+		console.error(`[HALLUCINATION GUARD] WARN — ${path.basename(targetFile)}: ${res.stdout.slice(0, 3500)}`);
 	}
 	process.stdout.write('{}\n');
 	process.exit(0);

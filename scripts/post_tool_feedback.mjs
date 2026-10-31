@@ -6,7 +6,8 @@
  * Antigravity's PostToolUse contract only accepts `{}`: a guard that exits 1 there is never shown
  * to the model (verified live 2026-10-31: unclosed code fence written, no warning reached the model).
  *   wrap <cmd> [args...]  PostToolUse: run the guard with the hook stdin; on a non-zero exit queue its
- *                         message under the conversation id; always print {} and exit 0.
+ *                         message under the conversation id (also a passing guard's "<GUARD> WARN"
+ *                         stderr, as a warning); always print {} and exit 0.
  *   inject                PreInvocation: consume this conversation's queue and inject it as an
  *                         ephemeral message before the next model call.
  * Queue dir: $LAZYARGON_FEEDBACK_DIR or ~/.lazyargon/feedback/<conversationId>.jsonl
@@ -17,6 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 const MAX_MESSAGE_CHARS = 4000;
+const PASSING_WARN_RE = /\[[A-Z ]*GUARD\] WARN/;
 
 function feedbackDir() {
 	return process.env.LAZYARGON_FEEDBACK_DIR || path.join(os.homedir(), '.lazyargon', 'feedback');
@@ -53,11 +55,12 @@ function wrap(argv) {
 	const [cmd, ...args] = argv;
 	if (!cmd) print({});
 	const res = spawnSync(cmd, args, { input: raw, encoding: 'utf8' });
-	if (res.status === 0) print({});
+	const warnOnly = res.status === 0 && PASSING_WARN_RE.test(res.stderr || '');
+	if (res.status === 0 && !warnOnly) print({});
 	process.stderr.write(res.stderr || '');
 	const guard = path.basename([...args].reverse().find((a) => /\.(mjs|js|py)$/.test(a)) || cmd);
 	const message =
-		[res.stderr, res.stdout]
+		[res.stderr, warnOnly ? '' : res.stdout]
 			.map((s) => (s || '').trim())
 			.filter((s) => s && s !== '{}')
 			.join('\n') || `${guard} exited ${res.status ?? res.signal ?? res.error?.message}`;
@@ -68,7 +71,7 @@ function wrap(argv) {
 	}
 	try {
 		fs.mkdirSync(feedbackDir(), { recursive: true });
-		const entry = { ts: new Date().toISOString(), guard, message: message.slice(0, MAX_MESSAGE_CHARS) };
+		const entry = { ts: new Date().toISOString(), guard, kind: warnOnly ? 'warn' : 'fail', message: message.slice(0, MAX_MESSAGE_CHARS) };
 		fs.appendFileSync(queuePath(id), `${JSON.stringify(entry)}\n`);
 	} catch (err) {
 		process.stderr.write(`post_tool_feedback: queue write failed: ${err.message}\n`);
@@ -100,9 +103,21 @@ function inject() {
 		});
 	fs.rmSync(taken, { force: true });
 	if (!entries.length) print({});
+	const fails = entries.filter((e) => e.kind !== 'warn');
+	const warns = entries.filter((e) => e.kind === 'warn');
 	const text = [
-		'[LAZYARGON POST-TOOL GUARD] 직전 도구 호출 뒤 가드가 실패를 보고했다. 해당 파일을 다시 열어 아래 문제를 고친 뒤 계속하라.',
-		...entries.map((e) => `- ${e.guard}: ${e.message}`),
+		...(fails.length
+			? [
+					'[LAZYARGON POST-TOOL GUARD] 직전 도구 호출 뒤 가드가 실패를 보고했다. 해당 파일을 다시 열어 아래 문제를 고친 뒤 계속하라.',
+					...fails.map((e) => `- ${e.guard}: ${e.message}`),
+				]
+			: []),
+		...(warns.length
+			? [
+					'[LAZYARGON POST-TOOL GUARD] 가드는 통과했지만 경고를 남겼다. 각 항목이 본문에서 유보(미확인)로 분명히 밝혀져 있는지 확인하고, 사실처럼 읽히면 고쳐라.',
+					...warns.map((e) => `- ${e.guard}: ${e.message}`),
+				]
+			: []),
 	].join('\n');
 	print({ injectSteps: [{ ephemeralMessage: text }] });
 }

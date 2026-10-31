@@ -119,6 +119,30 @@ def test_post_tool_feedback_queues_failure_and_injects_once(tmp_path):
     assert json.loads(second.stdout) == {}
 
 
+def test_post_tool_feedback_relays_passing_guard_warning(tmp_path):
+    env = {"LAZYARGON_FEEDBACK_DIR": str(tmp_path)}
+    payload = json.dumps({"conversationId": "conv-warn"})
+    warning = ["wrap", NODE, "-e", "process.stderr.write('[HALLUCINATION GUARD] WARN — r.md: 미확인 인용'); process.stdout.write('{}')"]
+    run_node_script("post_tool_feedback.mjs", warning, stdin_payload=payload, env=env)
+    quiet = ["wrap", NODE, "-e", "process.stderr.write('[HALLUCINATION GUARD] timeline 미발견'); process.stdout.write('{}')"]
+    run_node_script("post_tool_feedback.mjs", quiet, stdin_payload=json.dumps({"conversationId": "conv-quiet"}), env=env)
+    assert not (tmp_path / "conv-quiet.jsonl").exists()
+    msg = json.loads(run_node_script("post_tool_feedback.mjs", ["inject"], stdin_payload=payload, env=env).stdout)
+    text = msg["injectSteps"][0]["ephemeralMessage"]
+    assert "경고를 남겼다" in text and "미확인 인용" in text and "실패를 보고했다" not in text
+
+
+def test_hallucination_guard_checks_any_text_file_next_to_evidence(tmp_path):
+    (tmp_path / "evidence").mkdir()
+    (tmp_path / "evidence" / "chat.txt").write_text("2026년 3월 12일 오후 2:09, 김철수 : 내일 꼭 줄게\n", encoding="utf-8")
+    note = tmp_path / "김철수_정리.md"
+    note.write_text('# 정리\n김철수는 "돈을 이미 보냈다"라고 했다.\n', encoding="utf-8")
+    payload = json.dumps({"toolCall": {"name": "write_to_file", "args": {"TargetFile": str(note)}}})
+    proc = run_node_script("hallucination_guard.mjs", stdin_payload=payload)
+    assert proc.returncode == 1
+    assert "원본에 없는 인용" in proc.stderr
+
+
 def test_hooks_json_contains_legal_guard():
     hooks_data = json.loads((ROOT / "hooks.json").read_text(encoding="utf-8"))
     ptu = hooks_data.get("hooks", {}).get("PostToolUse", [])
