@@ -70,6 +70,50 @@ def test_grounded_report_passes(case: Path):
     assert res["verdict"] == "PASS", res["errors"]
 
 
+@pytest.mark.parametrize(
+    "line",
+    [
+        '이영희는 김철수에게 "내일 꼭 줄게"라고 보냈다.',
+        '김철수가 이영희에게 "언제까지 줄 건데"라고 물었다.',
+    ],
+)
+def test_two_named_speakers_misattribution_is_an_error(case: Path, line: str):
+    res = run(write(case, f"# 보고서\n{line}\n"), str(case / "evidence"))
+    assert any("화자 불일치" in e for e in res["errors"]), res["errors"]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        '김철수는 이영희에게 "내일 꼭 줄게"라고 보냈다.',
+        '이영희가 김철수에게 "언제까지 줄 건데"라고 물었다.',
+    ],
+)
+def test_two_named_speakers_correct_attribution_passes(case: Path, line: str):
+    res = run(write(case, f"# 보고서\n{line}\n"), str(case / "evidence"))
+    assert res["verdict"] == "PASS", res["errors"]
+
+
+@pytest.mark.parametrize(
+    "line,needle",
+    [
+        ('김철수가 "돈을 이미 보냈다"고 했는지는 미확인이다.', "원본에 없는 인용"),
+        ("2026-03-14 22:10 통화 여부는 미확인.", "없는 시각"),
+        ("추가 메시지 1,532건은 미확인.", "근거 없는 수치"),
+        ("녹음파일_0312.m4a 존재 여부 미확인.", "자료 폴더에 없는 파일"),
+    ],
+)
+def test_abstain_line_unsupported_claims_are_warned_not_skipped(case: Path, line: str, needle: str):
+    res = run(write(case, f"# 보고서\n{line}\n"), str(case / "evidence"))
+    assert res["verdict"] == "PASS", res["errors"]
+    assert any(needle in w for w in res["warnings"]), res["warnings"]
+
+
+def test_abstain_line_still_catches_wrong_speaker(case: Path):
+    res = run(write(case, '# 보고서\n김철수가 "언제까지 줄 건데"라고 한 의도는 미확인.\n'), str(case / "evidence"))
+    assert any("화자 불일치" in e for e in res["errors"]), res["errors"]
+
+
 def test_quotes_without_any_source_folder_fail_closed(tmp_path: Path):
     res = run(write(tmp_path, '# 보고서\n김철수는 "내일 꼭 줄게"라고 보냈다.\n'))
     assert any("원본 자료 미제시" in e for e in res["errors"])

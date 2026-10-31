@@ -483,6 +483,7 @@ def main(argv=None):
             tl_text = Path(args.timeline).read_text(encoding="utf-8", errors="replace")
         grounding = check_source_grounding(text, args.sources, tl_text)
         errors.extend(f"[원본 대조] {e}" for e in grounding["errors"])
+        warnings.extend(f"[원본 대조] {w}" for w in grounding["warnings"])
     # 5-5) Local High-Fidelity 비파라메트릭 게이트 (Section 4.2; Vertex API 호출 없음)
     if args.high_fidelity:
         if not args.evidence:
