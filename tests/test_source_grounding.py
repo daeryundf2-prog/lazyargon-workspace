@@ -1,5 +1,6 @@
 import json
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +27,7 @@ def case(tmp_path: Path) -> Path:
 
 
 def run(report: Path, *sources: str) -> dict[str, Any]:
-    args = ["python3", str(SCRIPT), str(report), "--json"]
+    args = [sys.executable, str(SCRIPT), str(report), "--json"]
     if sources:
         args += ["--sources", *sources]
     proc = subprocess.run(args, capture_output=True, text=True, encoding="utf-8")

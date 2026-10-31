@@ -47,25 +47,36 @@ EVIDENCE_FILE_EXTS = (
     "jpg|jpeg|png|gif|heic|webp|bmp|tif|tiff|mp4|mov|avi|mkv|m4a|mp3|wav|aac|amr|3gp|ogg|"
     "pdf|hwp|hwpx|doc|docx|xls|xlsx|ppt|pptx|zip|7z|e01|ex01|dd|raw|img|vmdk|pst|eml|msg|db|sqlite|txt|csv"
 )
-FILE_TOKEN_RE = re.compile(rf"(?<![\w./\\-])([\w가-힣()\[\] .,_-]*?[\w가-힣)\]_-]\.(?:{EVIDENCE_FILE_EXTS}))(?![\w])", re.IGNORECASE)
+FILE_TOKEN_RE = re.compile(rf"(?<![\w./\\-])([\w가-힣()\[\] .,_-]*?[\w가-힣)\]_-]\.(?:{EVIDENCE_FILE_EXTS}))(?![A-Za-z0-9_])", re.IGNORECASE)
+BARE_FILE_RE = re.compile(rf"[\w가-힣() .\-]+\.(?:{EVIDENCE_FILE_EXTS})", re.IGNORECASE)
 QUOTE_RES = [
-    re.compile(r'"([^"\n]{2,300})"'),
-    re.compile(r"“([^”\n]{2,300})”"),
-    re.compile(r"‘([^’\n]{2,300})’"),
-    re.compile(r"(?<![A-Za-z0-9])'([^'\n]{2,300})'(?![A-Za-z0-9])"),
-    re.compile(r"「([^」\n]{2,300})」"),
-    re.compile(r"『([^』\n]{2,300})』"),
-    re.compile(r"《([^》\n]{2,300})》"),
-    re.compile(r"〈([^〉\n]{2,300})〉"),
+    re.compile(r'"([^"\n]{2,1000})"'),
+    re.compile(r"“([^”\n]{2,1000})”"),
+    re.compile(r"‘([^’\n]{2,1000})’"),
+    re.compile(r"(?<![A-Za-z0-9])'([^'\n]{2,1000})'(?![A-Za-z0-9])"),
+    re.compile(r"「([^」\n]{2,1000})」"),
+    re.compile(r"『([^』\n]{2,1000})』"),
+    re.compile(r"《([^》\n]{2,1000})》"),
+    re.compile(r"〈([^〉\n]{2,1000})〉"),
+    re.compile(r"«([^»\n]{2,1000})»"),
 ]
-QUOTE_CHARS_RE = re.compile(r"[\"“”‘’「」『』《》〈〉]")
+SINGLE_QUOTE_IDX = {2, 3}
+SPEECH_AFTER_RE = re.compile(r"\s*(?:이?라고|이?라며|이?라는\s*(?:말|메시지|문자|발언|답장)|하고\s|고\s*(?:말|했|보냈|적|썼|외쳤|답))")
+QUOTE_CHARS_RE = re.compile(r"[\"“”‘’「」『』《》〈〉«»]")
+RECIPIENT_RE = re.compile(r"\s*(?:이?라는|이?라고\s*(?:적힌|된))?\s*(?:메시지|문자|말|답장|카톡)?\s*(?:을|를)?\s*(?:받|수신|전달받|읽)")
+NEGATION_AFTER_RE = re.compile(r"\s*(?:아니|않|안\s|못|말고|없)")
+ELISION_RE = re.compile(r"\(중략\)|\(후략\)|…|\.\.\.")
+KAKAO_PC_RE = re.compile(r"^\s*\[([^\]]{1,20})\]\s*\[(?:오전|오후)?\s*\d{1,2}:\d{2}(?::\d{2})?\]\s*(.+)$")
+META_TIME_RE = re.compile(r"(?:수집|분석|작성|출력|보고|추출|검토|발행|접수|회신)\s*(?:일시|시각|일자|날짜)")
+EXAMINER_DUR_RE = re.compile(r"소요|걸렸|걸린|작업\s*시간|분석\s*시간")
+MONEY_COMPOUND_RE = re.compile(r"(?<![\d.,])(\d+)\s?억\s?(?:(\d+)\s?(천만|백만|만)\s?)?원")
 EVIDENCE_TAG_RE = re.compile(r"<evidence(?:\s[^>]*)?>(.*?)</evidence>", re.IGNORECASE | re.DOTALL)
 COUNT_RE = re.compile(
     r"(?<![A-Za-z\d.,제])(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s?"
     r"(%|건|개(?![월년])|회(?![사의원신차])|통(?![화장신보])|명(?![의령시확백])|차례|시간(?![대표])|분간|초간|"
     r"KB|MB|GB|TB|바이트|페이지|프레임)(?![가-힣]*호증)"
 )
-MONEY_RE = re.compile(r"(?<![A-Za-z\d.,])(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s?(억|천만|백만|만|천)?\s?원(?![고본래문인칙장활형])")
+MONEY_RE = re.compile(r"(?<![A-Za-z\d.,억])(?<!억 )(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s?(억|천만|백만|만|천)?\s?원(?![고본래문인칙장활형])")
 MONEY_MULT = {"억": 10**8, "천만": 10**7, "백만": 10**6, "만": 10**4, "천": 10**3, None: 1, "": 1}
 UNIT_KEYS = {
     "명": r"speaker|person|people|participant|user|member|sender|명|인원|화자|참여|사람",
@@ -78,22 +89,28 @@ UNIT_KEYS = {
 }
 UNIT_CLASS = {"명": "명", "%": "%", "KB": "size", "MB": "size", "GB": "size", "TB": "size", "바이트": "size",
               "페이지": "페이지", "프레임": "프레임", "시간": "dur", "분간": "dur", "초간": "dur"}
-INLINE_TAG_RE = re.compile(r"</?(?:a|abbr|b|cite|code|em|font|i|mark|q|s|small|span|strong|sub|sup|u)\b[^>]*>", re.IGNORECASE)
+INLINE_TAG_RE = re.compile(r"</?(?:a|abbr|b|cite|code|em|font|i|mark|s|small|span|strong|sub|sup|u)\b[^>]*>", re.IGNORECASE)
 TAG_RE = re.compile(r"<(?!/?evidence\b)[a-zA-Z/][^>]*>", re.IGNORECASE)
 SPEAKER_LINE_RE = re.compile(r"(?:^|[,\]\)]\s*)([가-힣A-Za-z][가-힣A-Za-z0-9 ]{0,14}?)\s*:\s*(.+)$")
-ABSTAIN_RE = re.compile(r"미확인|미측정|INSUFFICIENT_DATA|UNVERIFIED|판단\s*불능")
-ASSERT_END_RE = re.compile(r"다(?:[.)\]\s,(]|$)")
+ABSTAIN_RE = re.compile(r"미확인|미측정|INSUFFICIENT_DATA|UNVERIFIED|판단\s*불능|발견되지\s*않|확인되지\s*않|확인할\s*수\s*없")
+ASSERT_END_RE = re.compile(r"다(?:[.)\]\s,(]|$)|(?:함|음|임)(?=[\s.)(\]]|$)")
+HEDGE_WINDOW = 25
+CLAUSE_BREAK_RE = re.compile(r"[았었였했냈갔왔봤줬주하]고\s|[았었였했냈]으며\s|지만\s")
+APPROX_TIME_RE = re.compile(r"\d\s*(?:시|분|:\d{2})\s*(?:경|쯤|무렵|전후|께)")
+APPROX_MINUTES = 60
 MIN_QUOTE_CHARS = 4
-SPEAKER_MARK = r"\s*(?:께서|에게서|한테서|로부터|은|는|이|가|의)(?![가-힣])|\s*[:：]|\s*[,]?\s*(?=[\"“「『‘'《〈])"
+SPEAKER_MARK = r"\s*(?:께서|에게서|한테서|로부터|은|는|이|가)(?![가-힣])|\s*[:：]|\s*[,]?\s*(?=[\"“「『‘'《〈])"
 HHMM_RE = re.compile(r"\d{1,2}\s*(?::\d{2}|시)")
-DOT_DT_RE = re.compile(r"(?<!\d)(\d{4})[./](\d{1,2})[./](\d{1,2})\.?\s+(\d{1,2}):(\d{2})(?!\d)")
+DOT_DT_RE = re.compile(r"(?<!\d)(\d{4})\s*[./]\s*(\d{1,2})\s*[./]\s*(\d{1,2})\.?\s+(\d{1,2}):(\d{2})(?!\d)")
 YEARLESS_RE = re.compile(r"(?<!\d)(\d{1,2})월\s*(\d{1,2})일\s*(?:(오전|오후)\s*)?(\d{1,2})(?::(\d{2})|\s*시(?:\s*(\d{1,2})\s*분)?)")
 TITLE_END_RE = re.compile(r"(?:법|법률|시행령|시행규칙|령|규칙|규정|조례|협약|지침|기준|가이드라인)$")
-TABLE_SPEAKER_COL = re.compile(r"화자|발신|발언자|작성자|송신|보낸|speaker|sender|from", re.IGNORECASE)
-ABSENCE_RE = re.compile(r"없[다었음는]|흔적\s*(?:이\s*)?없|사용하지\s*않|기록되지\s*않|확인되지\s*않|발견되지\s*않|미사용|(?<!\d)0\s*건")
+TABLE_SPEAKER_COL = re.compile(r"화자|발신|발언자|작성자|송신|보낸|이름|speaker|sender|from|name", re.IGNORECASE)
+TABLE_NOT_TEXT_COL = re.compile(r"요약|설명|비고|분석|의미|평가|해석|summary|note", re.IGNORECASE)
+ABSENCE_RE = re.compile(r"없[다었음는]|존재하지\s*않|부존재|흔적\s*(?:이\s*)?없|사용하지\s*않|기록되지\s*않|확인되지\s*않|발견되지\s*않|미사용|(?<!\d)0\s*건")
 WHOLE_RE = re.compile(r"(?:모든|전체|전부|전수)\s*(?:사용\s*)?(?:기록|이력|로그|소스|사용기록)")
+WHOLE_NEGATED_RE = re.compile(r"(?:대표하지|해당하지|포함하지|담지)\s*(?:않|못)|아니")
 COVERAGE_HEDGE_RE = re.compile(r"미확인|권한|제외|DENIED|ERROR|SKIPPED|수집\s*못|수집하지\s*못|읽지\s*못")
-TABLE_TEXT_COL = re.compile(r"발언|메시지|대화|원문|인용|진술|utterance|message", re.IGNORECASE)
+TABLE_TEXT_COL = re.compile(r"발언|메시지|대화|원문|인용|진술|내용|본문|utterance|message|text", re.IGNORECASE)
 
 
 def norm(s: str) -> str:
@@ -128,7 +145,7 @@ def speaker_index(texts: dict[str, str]) -> list[tuple[str, str, frozenset[str]]
     rows = []
     for t in texts.values():
         for line in t.splitlines():
-            m = SPEAKER_LINE_RE.search(line)
+            m = KAKAO_PC_RE.match(line) or SPEAKER_LINE_RE.search(line)
             if m:
                 times = frozenset(ts[:16] for ts in extract_timestamps(line) if " " in ts)
                 rows.append((m.group(1).strip(), norm(m.group(2)), times))
@@ -195,14 +212,22 @@ def _count_grounded(num: str, unit: str, corpus: str, struct: list[tuple[str, st
     return any(v == target and keys.search(k.split(".")[-1] or k) for k, v in struct)
 
 
-def _money_grounded(num: str, mult: str | None, corpus: str, struct: list[tuple[str, str]]) -> bool:
-    value = int(round(float(num) * MONEY_MULT[mult]))
-    pats = [rf"(?<![\d.]){re.escape(num)}\s?{mult or ''}\s?원", rf"(?<![\d.]){value}(?![\d])"]
-    if value % 10**8 == 0:
-        pats.append(rf"(?<![\d.]){value // 10**8}\s?억")
-    if value % 10**4 == 0:
-        pats.append(rf"(?<![\d.]){value // 10**4}\s?만")
-    if any(re.search(p, corpus) for p in pats):
+def money_values(text: str) -> tuple[set[int], list[tuple[int, int, int, str]]]:
+    """금액 표기를 원 단위 정수로 바꾼 값 집합과 (값, 시작, 끝, 원문) 목록. '1억 2천만원'은 하나의 금액이다."""
+    found: list[tuple[int, int, int, str]] = []
+    for m in MONEY_COMPOUND_RE.finditer(text):
+        value = int(m.group(1)) * 10**8 + (int(m.group(2)) * MONEY_MULT[m.group(3)] if m.group(2) else 0)
+        found.append((value, m.start(), m.end(), m.group(0)))
+    for m in MONEY_RE.finditer(text):
+        if any(s <= m.start() < e for _, s, e, _ in found):
+            continue
+        value = int(round(float(m.group(1).replace(",", "")) * MONEY_MULT[m.group(2)]))
+        found.append((value, m.start(), m.end(), m.group(0)))
+    return {v for v, _, _, _ in found}, found
+
+
+def _money_grounded(value: int, corpus_money: set[int], corpus: str, struct: list[tuple[str, str]]) -> bool:
+    if value in corpus_money or re.search(rf"(?<![\d.]){value}(?![\d])", corpus):
         return True
     return any(v == str(value) for _, v in struct)
 
@@ -210,7 +235,8 @@ def _money_grounded(num: str, mult: str | None, corpus: str, struct: list[tuple[
 def _hedged(line: str, start: int, end: int) -> bool:
     """항목 뒤에 단정 어미 없이 미확인이 오거나, '미확인:' 라벨 뒤에 있으면 유보다."""
     for m in ABSTAIN_RE.finditer(line):
-        if m.start() >= end and not ASSERT_END_RE.search(line[end:m.start()]):
+        between = line[end:m.start()]
+        if end <= m.start() <= end + HEDGE_WINDOW and not ASSERT_END_RE.search(between) and not CLAUSE_BREAK_RE.search(between):
             return True
         if m.end() <= start and re.match(r"[^:：]{0,12}[:：]", line[m.end():start]):
             return True
@@ -237,6 +263,17 @@ def _report_times(line: str) -> tuple[set[str], set[str]]:
     return full, yearless
 
 
+def _near(ts: str, pool: set[str]) -> bool:
+    """'경/쯤' 같은 어림 시각: 같은 날짜에 APPROX_MINUTES 안의 원본 시각이 있으면 근거가 있다."""
+    d, hm = ts.rsplit(" ", 1)
+    mins = int(hm[:2]) * 60 + int(hm[3:5])
+    for p in pool:
+        pd, phm = p.rsplit(" ", 1)
+        if pd == d and abs(int(phm[:2]) * 60 + int(phm[3:5]) - mins) <= APPROX_MINUTES:
+            return True
+    return False
+
+
 def _skip_quote(q: str, line: str, start: int, end: int) -> bool:
     if TITLE_END_RE.search(q.strip()) or re.match(r"\s*제\s*\d+\s*조", line[end:]):
         return True
@@ -247,6 +284,7 @@ def _skip_quote(q: str, line: str, start: int, end: int) -> bool:
 
 def _clean_report(text: str) -> tuple[list[str], set[int]]:
     if re.search(r"<[a-zA-Z/][^>]*>", text):
+        text = re.sub(r"</?q\b[^>]*>", '"', text, flags=re.IGNORECASE)
         text = html.unescape(TAG_RE.sub("\n", INLINE_TAG_RE.sub("", text)))
     lines = text.splitlines()
     fenced: set[int] = set()
@@ -260,6 +298,8 @@ def _clean_report(text: str) -> tuple[list[str], set[int]]:
             fenced.add(i)
     def code_span(m: re.Match[str]) -> str:
         inner = m.group(1)
+        if BARE_FILE_RE.fullmatch(inner.strip()):
+            return inner
         if re.search(r"[가-힣]", inner) and not re.search(r"[/\\=$]|--|\.\w{1,5}\b|\b(?:python|node|bash|scripts)\b", inner):
             return inner
         return ""
@@ -273,10 +313,10 @@ def _quote_items(i: int, lines: list[str], fenced: set[int], speakers_by_len: li
     line = lines[i]
     items = []
     if i not in fenced:
-        for rx in QUOTE_RES:
+        for k, rx in enumerate(QUOTE_RES):
             for m in rx.finditer(line):
                 q = m.group(1)
-                if rx.pattern.startswith("(?<![A-Za-z0-9])'") and not re.search(r"[가-힣]", q):
+                if k in SINGLE_QUOTE_IDX and not (re.search(r"[가-힣]", q) and SPEECH_AFTER_RE.match(line[m.end():])):
                     continue
                 if not _skip_quote(q, line, m.start(), m.end()):
                     items.append((q, m.start(), m.end(), None, line))
@@ -291,11 +331,11 @@ def _quote_items(i: int, lines: list[str], fenced: set[int], speakers_by_len: li
                 for m in rx.finditer(joined):
                     if m.start() < len(line) < m.end():
                         items.append((m.group(1), m.start(), m.end(), None, joined))
-    chat_like = i in fenced or line.lstrip().startswith(">") or HHMM_RE.search(line)
-    if chat_like:
+    tm = HHMM_RE.search(line)
+    if i in fenced or line.lstrip().startswith(">") or tm:
         for s in speakers_by_len:
             m = re.search(r"(?:^|[\s,\]\)>|])" + re.escape(s) + r"\s*[:：]\s*(.+?)\s*\|?\s*$", line)
-            if m:
+            if m and (i in fenced or line.lstrip().startswith(">") or (tm is not None and tm.start() < m.start(1))):
                 utt = m.group(1)
                 if not QUOTE_CHARS_RE.search(utt):
                     items.append((utt, m.start(1), m.end(1), s, line))
@@ -310,8 +350,8 @@ def _quote_items(i: int, lines: list[str], fenced: set[int], speakers_by_len: li
     return items
 
 
-def uncollected_sources(texts: dict[str, str]) -> list[dict[str, Any]]:
-    """coverage.json 에서 읽지 못한 소스(DENIED/ERROR/SKIPPED). ABSENT 는 파일이 없는 것이라 '없음'이 사실이다."""
+def coverage_sources(texts: dict[str, str]) -> list[dict[str, Any]]:
+    """coverage.json 의 모든 소스(라벨, 상태, 건수, 별칭 정규식)."""
     out = []
     for name, t in texts.items():
         if Path(name).name != "coverage.json":
@@ -321,8 +361,9 @@ def uncollected_sources(texts: dict[str, str]) -> list[dict[str, Any]]:
         except (ValueError, AttributeError):
             continue
         for s in srcs:
-            if isinstance(s, dict) and s.get("status") not in ("OK", "ABSENT") and s.get("match"):
-                out.append({"label": s.get("label", s.get("id")), "status": s["status"], "re": re.compile(s["match"], re.IGNORECASE)})
+            if isinstance(s, dict) and s.get("match"):
+                rx = re.compile(rf"(?<![A-Za-z])(?:{s['match']})(?![A-Za-z])", re.IGNORECASE)
+                out.append({"label": s.get("label", s.get("id")), "status": s.get("status"), "rows": _num(s.get("rows")), "re": rx})
     return out
 
 
@@ -331,8 +372,10 @@ def check(report_text: str, source_paths: list[str], timeline_text: str = "") ->
     warnings: list[str] = []
     files, texts = collect_sources(source_paths)
     corpus = norm("\n".join(texts.values()))
-    corpus_digits = re.sub(r"(?<=\d),(?=\d{3})", "", "\n".join(texts.values()) + "\n" + timeline_text)
-    struct = structured_values(texts)
+    value_texts = {k: v for k, v in texts.items() if Path(k).name != "coverage.json"}
+    corpus_digits = re.sub(r"(?<=\d),(?=\d{3})", "", "\n".join(value_texts.values()) + "\n" + timeline_text)
+    struct = structured_values(value_texts)
+    corpus_money, _ = money_values(corpus_digits)
     speakers = speaker_index(texts)
     known_speakers = {s for s, _, _ in speakers}
     speakers_by_len = sorted(known_speakers, key=len, reverse=True)
@@ -340,7 +383,8 @@ def check(report_text: str, source_paths: list[str], timeline_text: str = "") ->
     source_times = {ts[:16] for ts in all_times if " " in ts}
     source_yearless = {ts[5:16] for ts in source_times}
     basenames = {unicodedata.normalize("NFC", f.name).lower() for f in files}
-    missing = uncollected_sources(texts)
+    coverage = coverage_sources(texts)
+    missing = [s for s in coverage if s["status"] not in ("OK", "ABSENT")]
 
     lines, fenced = _clean_report(report_text)
     quotes_checked = 0
@@ -351,7 +395,7 @@ def check(report_text: str, source_paths: list[str], timeline_text: str = "") ->
         if stripped.startswith("|") and idx + 1 < len(lines) and re.match(r"^\|?\s*:?-{3,}", lines[idx + 1].strip()):
             heads = [c.strip() for c in stripped.strip("|").split("|")]
             sc = next((k for k, h in enumerate(heads) if TABLE_SPEAKER_COL.search(h)), None)
-            tc = next((k for k, h in enumerate(heads) if TABLE_TEXT_COL.search(h)), None)
+            tc = next((k for k, h in enumerate(heads) if TABLE_TEXT_COL.search(h) and not TABLE_NOT_TEXT_COL.search(h)), None)
             table = {"speaker": sc, "text": tc} if sc is not None and tc is not None else {}
             continue
         if not stripped.startswith("|"):
@@ -371,10 +415,14 @@ def check(report_text: str, source_paths: list[str], timeline_text: str = "") ->
             quotes_checked += 1
             if not texts:
                 continue
-            if nq not in corpus:
+            parts = [p.strip() for p in ELISION_RE.split(nq) if len(p.strip().replace(" ", "")) >= 2]
+            if not parts or any(p not in corpus for p in parts):
                 unsupported(f"L{ln} 원본에 없는 인용: \"{nq[:40]}\" — 자료 폴더의 어떤 텍스트에도 이 문장이 없다(지어낸 발언/요약을 인용부호로 쓰지 말 것)", start, end, ctx)
                 continue
+            nq = max(parts, key=len)
             hits = [(s, t) for s, utt, t in speakers if nq in utt or (utt in nq and len(utt) >= MIN_QUOTE_CHARS)]
+            if any(NEGATION_AFTER_RE.match(utt[utt.find(nq) + len(nq):]) for _, utt, _ in speakers if nq in utt) and len(parts) == 1:
+                errors.append(f"L{ln} 부분 인용으로 뜻이 바뀜 수 있다: \"{nq[:30]}\" 뒤에 원문에서는 부정이 이어진다 — 부정까지 인용할 것")
             said_by = {s for s, _ in hits}
             src_times = set().union(*(t for _, t in hits)) if hits else set()
             if src_times and full_times and not (full_times & src_times):
@@ -387,39 +435,58 @@ def check(report_text: str, source_paths: list[str], timeline_text: str = "") ->
                 named = {s for s in known_speakers if s in ctx}
                 if not named:
                     continue
-                marked = {s for s in named if re.search(re.escape(s) + f"(?:{SPEAKER_MARK})", ctx)} if len(named) > 1 else named
+                marked = {s for s in named if re.search(re.escape(s) + f"(?:{SPEAKER_MARK})", ctx)}
+                if RECIPIENT_RE.match(ctx[end:]):
+                    named = named - marked
+                    if not named:
+                        continue
+                    marked = set()
+                elif len(named) == 1:
+                    marked = named
                 wrong = marked if marked and not (marked & said_by) else (named if not (named & said_by) else set())
             if wrong:
                 errors.append(f"L{ln} 화자 불일치: \"{nq[:30]}\" 은 원본에서 {sorted(said_by)} 의 발언인데 보고서는 {sorted(wrong)} 로 적었다")
         if not texts or idx in fenced:
             continue
-        if missing and not COVERAGE_HEDGE_RE.search(line):
+        if missing:
             if ABSENCE_RE.search(line):
                 for s in missing:
-                    if s["re"].search(line):
+                    am = s["re"].search(line)
+                    if am and not COVERAGE_HEDGE_RE.search(line[am.start(): am.end() + HEDGE_WINDOW]):
                         errors.append(f"L{ln} 수집하지 못한 소스의 부재 단정: {s['label']}({s['status']}) — 읽지 못한 기록은 '없음'이 아니라 '미확인(권한 없음 등)'으로 적을 것")
-            if WHOLE_RE.search(line):
+            wm = WHOLE_RE.search(line)
+            if wm and not COVERAGE_HEDGE_RE.search(line) and not WHOLE_NEGATED_RE.search(line[wm.end():]):
                 errors.append(f"L{ln} 전체 검토 주장: 수집하지 못한 소스가 있다({', '.join(s['label'] + '=' + s['status'] for s in missing)}) — 범위를 줄여 쓰거나 빠진 소스를 밝힐 것")
         tpos = HHMM_RE.search(line)
         tstart, tend = (tpos.start(), tpos.end()) if tpos else (0, 0)
+        if META_TIME_RE.search(line):
+            full_times, yearless_times = set(), set()
+        if APPROX_TIME_RE.search(line):
+            full_times = {t for t in full_times if not _near(t, source_times)}
+            yearless_times = {t for t in yearless_times if not _near(t, source_yearless)}
         for ts in sorted(full_times - source_times):
             unsupported(f"L{ln} 원본/타임라인에 없는 시각: {ts} — 근거 자료의 시각만 쓸 것", tstart, tend)
         for ts in sorted(yearless_times - source_yearless):
             unsupported(f"L{ln} 원본/타임라인에 없는 시각: {ts}(연도 없음) — 근거 자료의 시각만 쓸 것", tstart, tend)
         for m in COUNT_RE.finditer(line):
             num = m.group(1).replace(",", "")
+            if UNIT_CLASS.get(m.group(2)) == "dur" and EXAMINER_DUR_RE.search(line):
+                continue
+            if re.search(r"파일", line) and m.group(2) in ("개", "건") and num == str(len(files)):
+                continue
+            if any(s["status"] == "OK" and s["rows"] == num and s["re"].search(line) for s in coverage):
+                continue
             if not _count_grounded(num, m.group(2), corpus_digits, struct):
                 unsupported(f"L{ln} 근거 없는 수치: {m.group(0).strip()} — 자료나 분석 산출물(집계 JSON 등)에 이 값이 없다", m.start(), m.end())
-        for m in MONEY_RE.finditer(line):
-            if not _money_grounded(m.group(1).replace(",", ""), m.group(2), corpus_digits, struct):
-                unsupported(f"L{ln} 근거 없는 금액: {m.group(0).strip()} — 자료에 이 금액이 없다", m.start(), m.end())
+        for value, ms, me, raw in money_values(line)[1]:
+            if not _money_grounded(value, corpus_money, corpus_digits, struct):
+                unsupported(f"L{ln} 근거 없는 금액: {raw.strip()} — 자료에 이 금액이 없다", ms, me)
         for fm in FILE_TOKEN_RE.finditer(line):
             name = fm.group(1).strip().split("/")[-1].split("\\")[-1]
             name = re.sub(r"^.*?[:：]\s*", "", name).strip()
-            words = name.split()
-            tails = [" ".join(words[k:]) for k in range(len(words))]
+            tails = [name] + [name[sep.end():] for sep in re.finditer(r"[\s(\[]+", name)]
             if all(unicodedata.normalize("NFC", t).lower() not in basenames for t in tails):
-                name = tails[-1] if tails else name
+                name = tails[-1]
                 unsupported(f"L{ln} 자료 폴더에 없는 파일: {name} — 첨부/증거로 적은 파일이 실제로 없다", fm.start(), fm.end())
 
     body = "\n".join(lines)
