@@ -85,7 +85,7 @@ UNIT_KEYS = {
     "페이지": r"page|페이지|쪽",
     "프레임": r"frame|프레임",
     "dur": r"duration|sec|min|hour|time|length|시간|길이",
-    "count": r"count|total|num|^n$|_n$|message|msg|call|item|file|hit|record|row|entr|event|chat|photo|image|건|개|통|회|수",
+    "count": r"count|total|num|^n$|_n$|message|msg|call|item|file|hit|record|row|entr|event|chat|photo|image|utter|deposit|withdraw|건|개|통|회|수",
 }
 UNIT_CLASS = {"명": "명", "%": "%", "KB": "size", "MB": "size", "GB": "size", "TB": "size", "바이트": "size",
               "페이지": "페이지", "프레임": "프레임", "시간": "dur", "분간": "dur", "초간": "dur"}
@@ -101,7 +101,33 @@ APPROX_MINUTES = 60
 MIN_QUOTE_CHARS = 4
 SPEAKER_MARK = r"\s*(?:께서|에게서|한테서|로부터|은|는|이|가)(?![가-힣])|\s*[:：]|\s*[,]?\s*(?=[\"“「『‘'《〈])"
 HHMM_RE = re.compile(r"\d{1,2}\s*(?::\d{2}|시)")
-DOT_DT_RE = re.compile(r"(?<!\d)(\d{4})\s*[./]\s*(\d{1,2})\s*[./]\s*(\d{1,2})\.?\s+(\d{1,2}):(\d{2})(?!\d)")
+DOT_DT_RE = re.compile(r"(?<!\d)(\d{4})\s*[./]\s*(\d{1,2})\s*[./]\s*(\d{1,2})\.?\s*(?:\([^)]{1,3}\)\s*)?(오전|오후)?\s*(\d{1,2}):(\d{2})(?!\d)")
+DUR_MS_RE = re.compile(r"(?<!\d)(\d{1,3})\s*분\s*(\d{1,2})\s*초")
+COUNT_TOPICS = [
+    (r"발화|발언", r"utter|speech|발화|발언"),
+    (r"입금", r"deposit|credit|입금"),
+    (r"출금|송금|이체", r"withdraw|debit|transfer|출금|송금|이체"),
+    (r"내역|거래|행", r"row|record|transaction|entr|내역|거래"),
+    (r"파일|첨부", r"file|attach|파일|첨부"),
+    (r"메시지|문자|카톡|대화", r"message|msg|chat|sms|메시지|대화"),
+    (r"통화", r"call|통화"),
+    (r"사진|이미지", r"photo|image|img|사진"),
+    (r"화자|참여자|인원|참석", r"speaker|participant|person|people|member|화자|인원"),
+]
+
+
+def dot_times(text: str) -> set[str]:
+    """'2026. 9. 14. 오후 3:12'(카카오톡 iOS)·'2026.03.12 14:30' 같은 점 구분 시각을 'YYYY-MM-DD HH:MM'로."""
+    out = set()
+    for m in DOT_DT_RE.finditer(text):
+        y, mo, d, ampm, h, mi = m.groups()
+        hour = int(h)
+        if ampm == "오후" and hour < 12:
+            hour += 12
+        elif ampm == "오전" and hour == 12:
+            hour = 0
+        out.add(f"{int(y):04d}-{int(mo):02d}-{int(d):02d} {hour:02d}:{mi}")
+    return out
 YEARLESS_RE = re.compile(r"(?<!\d)(\d{1,2})월\s*(\d{1,2})일\s*(?:(오전|오후)\s*)?(\d{1,2})(?::(\d{2})|\s*시(?:\s*(\d{1,2})\s*분)?)")
 TITLE_END_RE = re.compile(r"(?:법|법률|시행령|시행규칙|령|규칙|규정|조례|협약|지침|기준|가이드라인)$")
 TABLE_SPEAKER_COL = re.compile(r"화자|발신|발언자|작성자|송신|보낸|이름|speaker|sender|from|name", re.IGNORECASE)
@@ -147,7 +173,7 @@ def speaker_index(texts: dict[str, str]) -> list[tuple[str, str, frozenset[str]]
         for line in t.splitlines():
             m = KAKAO_PC_RE.match(line) or SPEAKER_LINE_RE.search(line)
             if m:
-                times = frozenset(ts[:16] for ts in extract_timestamps(line) if " " in ts)
+                times = frozenset({ts[:16] for ts in extract_timestamps(line) if " " in ts} | dot_times(line))
                 rows.append((m.group(1).strip(), norm(m.group(2)), times))
     return rows
 
@@ -203,11 +229,12 @@ def structured_values(texts: dict[str, str]) -> list[tuple[str, str]]:
     return out
 
 
-def _count_grounded(num: str, unit: str, corpus: str, struct: list[tuple[str, str]]) -> bool:
+def _count_grounded(num: str, unit: str, corpus: str, struct: list[tuple[str, str]], line: str = "") -> bool:
     n, u = re.escape(num), re.escape(unit)
     if re.search(rf"(?<![\d.]){n}(?![\d]|\.\d)\s?{u}", corpus, re.IGNORECASE):
         return True
-    keys = re.compile(UNIT_KEYS[UNIT_CLASS.get(unit, "count")], re.IGNORECASE)
+    topics = [k for noun, k in COUNT_TOPICS if re.search(noun, line)] if UNIT_CLASS.get(unit, "count") in ("count", "명") else []
+    keys = re.compile("|".join(topics) if topics else UNIT_KEYS[UNIT_CLASS.get(unit, "count")], re.IGNORECASE)
     target = _num(num)
     return any(v == target and keys.search(k.split(".")[-1] or k) for k, v in struct)
 
@@ -245,10 +272,7 @@ def _hedged(line: str, start: int, end: int) -> bool:
 
 def _report_times(line: str) -> tuple[set[str], set[str]]:
     """(연도 포함 'YYYY-MM-DD HH:MM', 연도 없는 'MM-DD HH:MM')."""
-    full = {ts[:16] for ts in extract_timestamps(line) if " " in ts}
-    for m in DOT_DT_RE.finditer(line):
-        y, mo, d, h, mi = m.groups()
-        full.add(f"{int(y):04d}-{int(mo):02d}-{int(d):02d} {int(h):02d}:{mi}")
+    full = {ts[:16] for ts in extract_timestamps(line) if " " in ts} | dot_times(line)
     yearless = set()
     for m in YEARLESS_RE.finditer(line):
         if re.search(r"\d{4}\s*년\s*$", line[: m.start()]):
@@ -379,8 +403,8 @@ def check(report_text: str, source_paths: list[str], timeline_text: str = "") ->
     speakers = speaker_index(texts)
     known_speakers = {s for s, _, _ in speakers}
     speakers_by_len = sorted(known_speakers, key=len, reverse=True)
-    all_times = extract_timestamps("\n".join(texts.values()) + "\n" + timeline_text)
-    source_times = {ts[:16] for ts in all_times if " " in ts}
+    all_text = "\n".join(texts.values()) + "\n" + timeline_text
+    source_times = {ts[:16] for ts in extract_timestamps(all_text) if " " in ts} | dot_times(all_text)
     source_yearless = {ts[5:16] for ts in source_times}
     basenames = {unicodedata.normalize("NFC", f.name).lower() for f in files}
     coverage = coverage_sources(texts)
@@ -420,9 +444,13 @@ def check(report_text: str, source_paths: list[str], timeline_text: str = "") ->
                 unsupported(f"L{ln} 원본에 없는 인용: \"{nq[:40]}\" — 자료 폴더의 어떤 텍스트에도 이 문장이 없다(지어낸 발언/요약을 인용부호로 쓰지 말 것)", start, end, ctx)
                 continue
             nq = max(parts, key=len)
+            part_said = [{s for s, utt, _ in speakers if p in utt or (utt in p and len(utt) >= MIN_QUOTE_CHARS)} for p in parts]
+            if len(parts) > 1 and all(part_said) and not set.intersection(*part_said):
+                errors.append(f"L{ln} 생략 인용이 서로 다른 화자의 발언을 이어 붙였다: \"{nq[:30]}\" — 화자별로 나눠 인용할 것")
+                continue
             hits = [(s, t) for s, utt, t in speakers if nq in utt or (utt in nq and len(utt) >= MIN_QUOTE_CHARS)]
             if any(NEGATION_AFTER_RE.match(utt[utt.find(nq) + len(nq):]) for _, utt, _ in speakers if nq in utt) and len(parts) == 1:
-                errors.append(f"L{ln} 부분 인용으로 뜻이 바뀜 수 있다: \"{nq[:30]}\" 뒤에 원문에서는 부정이 이어진다 — 부정까지 인용할 것")
+                errors.append(f"L{ln} 부분 인용으로 뜻이 바뀔 수 있다: \"{nq[:30]}\" 뒤에 원문에서는 부정이 이어진다 — 부정까지 인용할 것")
             said_by = {s for s, _ in hits}
             src_times = set().union(*(t for _, t in hits)) if hits else set()
             if src_times and full_times and not (full_times & src_times):
@@ -435,15 +463,23 @@ def check(report_text: str, source_paths: list[str], timeline_text: str = "") ->
                 named = {s for s in known_speakers if s in ctx}
                 if not named:
                     continue
-                marked = {s for s in named if re.search(re.escape(s) + f"(?:{SPEAKER_MARK})", ctx)}
                 if RECIPIENT_RE.match(ctx[end:]):
-                    named = named - marked
-                    if not named:
+                    claimed = {s for s in named if re.search(re.escape(s) + r"\s*(?:로부터|에게서|한테서)", ctx)}
+                    if not claimed:
                         continue
-                    marked = set()
                 elif len(named) == 1:
-                    marked = named
-                wrong = marked if marked and not (marked & said_by) else (named if not (named & said_by) else set())
+                    claimed = named
+                else:
+                    pos: dict[str, int] = {}
+                    for s in named:
+                        for mm in re.finditer(re.escape(s) + f"(?:{SPEAKER_MARK})", ctx):
+                            if mm.start() < start:
+                                pos[s] = max(pos.get(s, -1), mm.start())
+                    claimed = {max(pos, key=lambda k: pos[k])} if pos else set()
+                if claimed:
+                    wrong = claimed - said_by if not (claimed & said_by) else set()
+                else:
+                    wrong = named if not (named & said_by) else set()
             if wrong:
                 errors.append(f"L{ln} 화자 불일치: \"{nq[:30]}\" 은 원본에서 {sorted(said_by)} 의 발언인데 보고서는 {sorted(wrong)} 로 적었다")
         if not texts or idx in fenced:
@@ -476,8 +512,14 @@ def check(report_text: str, source_paths: list[str], timeline_text: str = "") ->
                 continue
             if any(s["status"] == "OK" and s["rows"] == num and s["re"].search(line) for s in coverage):
                 continue
-            if not _count_grounded(num, m.group(2), corpus_digits, struct):
+            if not _count_grounded(num, m.group(2), corpus_digits, struct, line):
                 unsupported(f"L{ln} 근거 없는 수치: {m.group(0).strip()} — 자료나 분석 산출물(집계 JSON 등)에 이 값이 없다", m.start(), m.end())
+        if not EXAMINER_DUR_RE.search(line):
+            for dm in DUR_MS_RE.finditer(line):
+                secs = str(int(dm.group(1)) * 60 + int(dm.group(2)))
+                said = re.sub(r"\s+", "", dm.group(0)) in re.sub(r"\s+", "", corpus_digits)
+                if not said and not any(v == secs and re.search(UNIT_KEYS["dur"], k) for k, v in struct):
+                    unsupported(f"L{ln} 근거 없는 시간 길이: {dm.group(0)} — 자료나 분석 산출물에 이 값이 없다", dm.start(), dm.end())
         for value, ms, me, raw in money_values(line)[1]:
             if not _money_grounded(value, corpus_money, corpus_digits, struct):
                 unsupported(f"L{ln} 근거 없는 금액: {raw.strip()} — 자료에 이 금액이 없다", ms, me)
