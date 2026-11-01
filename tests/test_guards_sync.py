@@ -62,6 +62,80 @@ def test_stop_claim_guard_blocks_unsupported_claim():
     assert data.get("decision") == "continue"
 
 
+@pytest.mark.parametrize("message,checked", [
+    ("설치된 Dissect 버전에는 브라우저 기능이 없습니다.", True),
+    ("결과 수치는 두 번 모두 맞았습니다.", True),
+    ("이 파서는 macOS·Linux에서도 동작합니다.", True),
+    ("Safari 기록은 권한이 없어 확인하지 못했습니다.", False),
+    ("도구 없이는 README 파일의 존재 여부를 확인할 수 없습니다.", False),
+    ("문제 없습니다. 테스트 790개가 통과했습니다.", False),
+])
+def test_stop_claim_guard_self_check_on_risky_claims(tmp_path, message, checked):
+    payload = json.dumps({"hook_event_name": "Stop", "cwd": str(tmp_path), "last_assistant_message": message}, ensure_ascii=False)
+    proc = run_node_script("stop_claim_guard.mjs", stdin_payload=payload)
+    out = json.loads(proc.stdout)
+    assert (out.get("decision") == "continue" and "SELF-CHECK" in out.get("reason", "")) is checked, out
+    again = json.dumps({"hook_event_name": "Stop", "cwd": str(tmp_path), "stop_hook_active": True, "last_assistant_message": message}, ensure_ascii=False)
+    assert json.loads(run_node_script("stop_claim_guard.mjs", stdin_payload=again).stdout) == {}
+    off = run_node_script("stop_claim_guard.mjs", stdin_payload=payload, env={"LAZYARGON_SELF_CHECK": "off"})
+    assert "SELF-CHECK" not in off.stdout
+
+
+def _turn_transcript(tmp_path, outputs, calls=1):
+    steps: list[dict[str, object]] = [{"type": "USER_INPUT", "content": "질문"}]
+    for o in outputs:
+        steps.append({"type": "PLANNER_RESPONSE", "content": "", "tool_calls": [{"name": "run_command", "args": {}}] * calls})
+        steps.append({"type": "GENERIC", "content": o})
+    tp = tmp_path / "transcript_full.jsonl"
+    tp.write_text("\n".join(json.dumps(s, ensure_ascii=False) for s in steps), encoding="utf-8")
+    return str(tp)
+
+
+@pytest.mark.parametrize("outputs,message,checked", [
+    (["Command output:\n42"], "로그 줄은 42건입니다.", False),
+    (["Command output:\n42"], "로그인 기록 57건이 확인되었습니다.", True),
+    (["ModuleNotFoundError: No module named 'x.browsers'"], "브라우저 기능이 없습니다.", True),
+    (["report.py:42 에서 표를 만들지 않음", "ok"], "표가 출력되지 않습니다.", False),
+])
+def test_stop_claim_guard_uses_turn_evidence(tmp_path, outputs, message, checked):
+    payload = json.dumps({"hook_event_name": "Stop", "cwd": str(tmp_path), "last_assistant_message": message,
+                          "transcriptPath": _turn_transcript(tmp_path, outputs)}, ensure_ascii=False)
+    out = json.loads(run_node_script("stop_claim_guard.mjs", stdin_payload=payload).stdout)
+    assert ("SELF-CHECK" in out.get("reason", "")) is checked, out
+
+
+def test_stop_claim_guard_asks_once_per_turn_and_skips_scoped_absence(tmp_path):
+    tp = _turn_transcript(tmp_path, ["ls: /p/x.py: No such file or directory"])
+    base = {"hook_event_name": "Stop", "conversationId": "c9", "cwd": str(tmp_path), "transcriptPath": tp}
+    scoped = json.dumps({**base, "last_assistant_message": "/p/x.py: 파일 없음"}, ensure_ascii=False)
+    assert json.loads(run_node_script("stop_claim_guard.mjs", stdin_payload=scoped).stdout) == {}
+    broad = json.dumps({**base, "last_assistant_message": "브라우저 기능이 없습니다."}, ensure_ascii=False)
+    first = json.loads(run_node_script("stop_claim_guard.mjs", stdin_payload=broad).stdout)
+    assert "SELF-CHECK" in first.get("reason", "")
+    assert json.loads(run_node_script("stop_claim_guard.mjs", stdin_payload=broad).stdout) == {}
+    new_kind = json.dumps({**base, "executionNum": 1, "last_assistant_message": "Linux에서도 동작합니다."}, ensure_ascii=False)
+    assert "SELF-CHECK" in json.loads(run_node_script("stop_claim_guard.mjs", stdin_payload=new_kind).stdout).get("reason", "")
+    capped = json.dumps({**base, "executionNum": 2, "last_assistant_message": "전부 맞았습니다."}, ensure_ascii=False)
+    assert json.loads(run_node_script("stop_claim_guard.mjs", stdin_payload=capped).stdout) == {}
+
+
+def test_lookup_guard_warns_on_failed_lookup(tmp_path):
+    steps = [{"type": "USER_INPUT", "content": "q"},
+             {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": "run_command", "args": {"CommandLine": "ls /x/browsers"}}]},
+             {"type": "GENERIC", "step_index": 2, "content": "ls: /x/browsers: No such file or directory"},
+             {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": "run_command", "args": {"CommandLine": "ls -la /x/scripts"}}]},
+             {"type": "GENERIC", "step_index": 4, "content": "a.py b.py"}]
+    tp = tmp_path / "transcript_full.jsonl"
+    tp.write_text("\n".join(json.dumps(s) for s in steps), encoding="utf-8")
+    payload = json.dumps({"conversationId": "c1", "toolCall": {"name": "run_command", "args": {"CommandLine": "ls -la /x/scripts"}},
+                          "stepIdx": 3, "cwd": str(tmp_path), "transcriptPath": str(tp)})
+    proc = run_node_script("lookup_guard.mjs", stdin_payload=payload)
+    assert proc.stdout.strip() == "{}" and "[LOOKUP GUARD] WARN" in proc.stderr
+    assert "ls /x/browsers" in proc.stderr and "/x/scripts" not in proc.stderr
+    again = run_node_script("lookup_guard.mjs", stdin_payload=payload)
+    assert "WARN" not in again.stderr
+
+
 def test_stop_claim_guard_passes_strict_abstention():
     payload = json.dumps({
         "hook_event_name": "Stop",

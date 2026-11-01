@@ -133,13 +133,13 @@ def main(argv: list[str] | None = None) -> int:
     else:
         for r in records:
             if r.get("pii_count"):
-                print(f"{r['file']}: {r['pii_count']}건" + (f" → 마스킹: {r['masked_to']}" if r.get("masked_to") else ""))
+                print(f"{r['file']}: 개인정보 패턴 일치 {r['pii_count']}건" + (f" → 마스킹: {r['masked_to']}" if r.get("masked_to") else ""))
                 for fd in r["findings"]:
                     print(f"    L{fd['line']}  {fd['type']}: {fd['match']}")
         if total == 0:
             print(f"개인정보 패턴 미탐지 ({len(files)}개 파일)")
         else:
-            print(f"총 {total}건 탐지" + (" — 마스킹 완료" if args.mask else " — --mask로 마스킹본 생성 가능"))
+            print(f"개인정보 패턴 일치 총 {total}건(확정 아님)" + (" — 마스킹 완료" if args.mask else " — --mask로 마스킹본 생성 가능"))
     return 1 if total else 0
 
 

@@ -147,6 +147,98 @@ function readTailContent(filePath, maxBytes = 512 * 1024) {
 
 const NORMAL_STOP_REASONS = new Set(['NO_TOOL_CALL', 'model_stop']);
 
+// 자기 점검(self-check): 틀리기 쉬운 네 종류의 단정 문장이 최종 답변에 있으면 한 번만 되묻는다(차단이 아니라 재확인 요청).
+// 실제 사례(2026-11-01): 조회 실패를 '기능 없음'으로, 로그 줄 수를 '로그인 N건'으로, 일부 확인을 '두 번 모두 맞다'로,
+// 실행하지 않은 환경을 'Linux에서도 동작'으로 썼다.
+const RISKY_CLAIMS = [
+	{
+		kind: '부재·불가 단정',
+		re: /(?:기능|지원|플러그인|파일|기록|데이터|흔적|도구|방법|권한|모듈|옵션|명령)(?:이|은|는|가|도)?\s*(?:전혀\s*)?(?:없[습다음어]|존재하지\s*않)|지원(?:하|되)지\s*않|불가능(?:합|하다)|할\s*수\s*없[습다]|안\s*됩니다|되지\s*않습니다/,
+	},
+	{ kind: '전체·전부 단정', re: /(?:모두|전부|두\s*번\s*모두|빠짐없이)\s*\S{0,8}?(?:맞|통과|확인|일치|정상|성공|동작|검증)/ },
+	{
+		kind: '실행 환경 단정',
+		re: /(?:Linux|리눅스|Windows|윈도우|macOS|맥|Android|안드로이드|iOS)(?:\s*·\s*\S+)?에서(?:도)?\s*(?:정상\s*)?(?:동작|작동|실행|사용)(?:한다|합니다|됩니다|된다|가능)/,
+	},
+];
+const SELF_HEDGE_RE = /미확인|확인하지\s*못|확인\s*못|추정|일\s*수\s*있|아직\s*(?:확인|시험|실행)|확인한\s*(?:범위|것만|\d+)|범위\s*(?:내|안)에서|조회한\s*범위|열람할\s*수\s*없|(?:확인|판단|조회|알)할\s*수\s*(?:없|가\s*없)|알\s*수\s*없|확인되지\s*않/;
+
+const LOOKUP_FAIL_RE = /No such file or directory|cannot (?:find|access|open)|not found|ModuleNotFoundError|No module named|ImportError|Permission denied|Operation not permitted|does not exist|could not be found|No results found|\b0 results\b|Found 0\b|no matches|HTTP (?:403|404|410)/i;
+const NUM_CLAIM_RE = /(\d[\d,]*(?:\.\d+)?)\s?(건|회|개|명|%|퍼센트)/g;
+
+// 이번 턴(마지막 USER_INPUT 이후)에 실제로 실행한 것: 도구 호출 수, 검색 수, 실패한 조회 수, 도구 출력, 사용자 메시지.
+function turnEvidence(content) {
+	if (!content) return null;
+	const steps = content.split('\n').filter(Boolean).map((l) => {
+		try {
+			return JSON.parse(l);
+		} catch {
+			return null;
+		}
+	}).filter(Boolean);
+	if (!steps.length) return null;
+	let start = 0;
+	for (let i = steps.length - 1; i >= 0; i--) {
+		if (steps[i].type === 'USER_INPUT') {
+			start = i;
+			break;
+		}
+	}
+	const turn = steps.slice(start);
+	const calls = turn.flatMap((s) => (Array.isArray(s.tool_calls) ? s.tool_calls : []));
+	const outs = turn.filter((s) => s.type === 'GENERIC').map((s) => String(s.content || ''));
+	return {
+		turnKey: `${start}:${String(steps[start]?.content || '').length}`,
+		calls: calls.length,
+		searches: calls.filter((c) => /search_web|web_search|read_url/i.test(String(c.name || ''))).length,
+		failed: outs.filter((o) => LOOKUP_FAIL_RE.test(o)).length,
+		outputs: outs.join('\n').replace(/(?<=\d),(?=\d{3})/g, ''),
+		user: String(turn[0]?.type === 'USER_INPUT' ? turn[0].content || '' : ''),
+	};
+}
+
+function riskySentences(message, ev = null) {
+	const text = message.replace(/```[\s\S]*?```/g, ' ').replace(/`[^`\n]*`/g, ' ');
+	// 부재 단정은 근거가 약한 턴에서만 되묻는다: 조회가 없었거나, 실패했거나, 검색 1~2회뿐인 턴.
+	const weak = !ev || ev.calls === 0 || ev.failed > 0 || (ev.searches > 0 && ev.searches <= 2 && ev.calls === ev.searches);
+	const out = [];
+	for (const s of text.split(/(?<=[.!?。])\s+|\n+/)) {
+		const line = s.trim();
+		if (!line || SELF_HEDGE_RE.test(line)) continue;
+		// 직접 조회한 경로를 이름으로 대는 부재 문장('…/x.py: 파일 없음')은 그 조회 범위에 맞춘 서술이다.
+		const scoped = ev && (line.match(/[~\w.-]*\/[\w.\/-]+/g) || []).some((t) => t.length > 3 && ev.outputs.includes(t));
+		let hit = RISKY_CLAIMS.find((c) => c.re.test(line) && (c.kind !== '부재·불가 단정' || (weak && !scoped)));
+		if (!hit && ev) {
+			for (const m of line.matchAll(NUM_CLAIM_RE)) {
+				const digits = m[1].replace(/,/g, '');
+				if (Number(digits) < 2) continue;
+				const re = new RegExp(`(?<![\\d.])${digits.replace('.', '\\.')}(?![\\d])`);
+				if (!re.test(ev.outputs) && !re.test(ev.user)) {
+					hit = { kind: `출처 없는 수치(${m[0]})` };
+					break;
+				}
+			}
+		}
+		if (hit) out.push({ kind: hit.kind, sentence: line.slice(0, 200) });
+		if (out.length >= 8) break;
+	}
+	return out;
+}
+
+function selfCheckReason(risky) {
+	return [
+		`[SELF-CHECK v${GUARD_PACK_VERSION}] 최종 답변에 근거 확인이 필요한 문장이 있다. 각 문장을 이번 세션의 도구 결과와 대조하라. 근거를 대지 못하는 문장만 고친 문장으로 짧게 다시 말하고(답변 전체를 반복하지 않는다), 모두 근거가 있으면 '점검: 근거 있음 — <문장별 근거 도구 결과 한 줄>'로만 답한다.`,
+		'- 없다·안 된다: 조회로 직접 본 범위(예: "그 경로에 파일 없음")는 사실이므로 그대로 쓴다. 그 범위를 넘어 넓힌 말(예: "기능이 없다")만 "확인하지 못했다"로 바꾼다. 조회가 실패했으면 그 조회로는 아무것도 단정하지 않는다.',
+		'- 모두·전부: 하나하나 확인했는가? 일부만 확인했으면 확인한 범위를 적는다.',
+		'- 숫자: 이번 턴 도구 출력에 있는 값인가? 실제로 센 대상의 이름으로 적었는가? (예: 로그 줄 수를 로그인 횟수로 쓰지 않는다) 계산한 값이면 계산식을 적는다.',
+		'- ○○에서 동작: 그 환경에서 실제로 실행했는가? 아니면 "미확인"으로 쓴다.',
+		'점검할 문장:',
+		...risky.map((r, i) => `${i + 1}. [${r.kind}] ${r.sentence}`),
+	].join('\n');
+}
+
+let LAST_MESSAGE = '';
+
 // Observe log home: an absolute workspace from the payload, never the hook's cwd (the plugin repo).
 function observeLogBase(payload) {
 	const ws = Array.isArray(payload.workspacePaths) ? payload.workspacePaths[0] : undefined;
@@ -170,6 +262,7 @@ function emitBlock(payload, reason) {
 			would_block: true,
 			conversationId: payload.conversationId || null,
 			reason: reason.slice(0, 300),
+			excerpt: LAST_MESSAGE.slice(0, 400),
 		};
 		fs.appendFileSync(path.join(dir, 'stop-guard.jsonl'), `${JSON.stringify(entry)}\n`);
 	} catch (err) {
@@ -225,6 +318,38 @@ async function main() {
 			: typeof payload.finalModelOutput === 'string' && payload.finalModelOutput
 				? payload.finalModelOutput
 				: extractLastAssistantMessageFromTranscript(transcriptContent);
+	LAST_MESSAGE = message || '';
+	const ev = turnEvidence(transcriptContent);
+	// 되묻기 정책: Antigravity Stop 은 첫 정지에 executionNum=0, 재진입 뒤 정지에 1 을 보낸다(실세션 2026-11-01 로그).
+	// executionNum>=2 는 위에서 이미 통과시키므로 한 요청에 최대 두 번 묻는다. 두 번째는 이번 요청에서 아직 묻지 않은
+	// 종류의 문장이 새로 생겼을 때만 묻는다(같은 종류를 다시 묻는 것은 실세션에서 오탐 반복이었다).
+	const turnId = `${payload.conversationId || ''}#${ev ? ev.turnKey : ''}`;
+	const asked = new Set();
+	try {
+		const log = fs.readFileSync(path.join(observeLogBase(payload), '.lazyargon', 'stop-guard.jsonl'), 'utf8');
+		for (const l of log.split('\n')) {
+			if (!l.includes('"self_check"') || !l.includes(`"turn":${JSON.stringify(turnId)}`)) continue;
+			try {
+				for (const s of JSON.parse(l).sentences || []) asked.add(s.kind);
+			} catch {
+				// 깨진 줄은 건너뛴다
+			}
+		}
+	} catch {
+		// 기록 없음 — 첫 질문
+	}
+	const risky = (message ? riskySentences(message, ev) : []).filter((r) => !asked.has(r.kind));
+	if (risky.length && (process.env.LAZYARGON_SELF_CHECK || 'on').trim().toLowerCase() !== 'off') {
+		try {
+			const dir = path.join(observeLogBase(payload), '.lazyargon');
+			fs.mkdirSync(dir, { recursive: true });
+			fs.appendFileSync(path.join(dir, 'stop-guard.jsonl'), `${JSON.stringify({ ts: new Date().toISOString(), mode: 'self_check', turn: turnId, conversationId: payload.conversationId || null, executionNum: payload.executionNum ?? null, stop_hook_active: payload.stop_hook_active ?? null, payload_keys: Object.keys(payload), sentences: risky })}\n`);
+		} catch (err) {
+			process.stderr.write(`stop_claim_guard: self-check log failed: ${err.message}\n`);
+		}
+		process.stdout.write(`${JSON.stringify({ decision: 'continue', reason: selfCheckReason(risky) })}\n`);
+		process.exit(0);
+	}
 	if (!message || !CLAIM_RE.test(message)) {
 		process.stdout.write('{}\n');
 		process.exit(0);

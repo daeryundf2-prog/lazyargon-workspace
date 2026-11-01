@@ -222,7 +222,7 @@ SOURCES: list[Rec] = [
     {"id": "shell_history", "label": "터미널 명령 기록", "match": r"터미널|셸|쉘|zsh|bash|명령\s*(기록|이력)", "fn": shell_history},
     {"id": "install_history", "label": "소프트웨어 설치 기록", "match": r"설치\s*(기록|이력)|installhistory", "fn": install_history},
     {"id": "power_log", "label": "잠자기/깨우기 기록(pmset)", "match": r"잠자기|절전|깨우기|깨어|sleep|wake|전원", "fn": power_log},
-    {"id": "unified_log", "label": "로그인/잠금 기록(통합 로그)", "match": r"통합\s*로그|unified\s*log|로그인|로그아웃|화면\s*잠금", "fn": None},
+    {"id": "unified_log", "label": "loginwindow 로그 줄(login·logout·lock 단어 포함, 횟수 아님)", "match": r"통합\s*로그|unified\s*log|로그인|로그아웃|화면\s*잠금", "fn": None},
 ]
 
 
@@ -273,7 +273,7 @@ def write_outputs(out: Path, recs: list[Rec], window_text: str) -> None:
     public = [{k: v for k, v in r.items() if k != "_rows"} for r in recs]
     meta = {"collected_at": fmt(time.time()), "window": window_text, "host_app": host_app(), "sources": public}
     (out / "coverage.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
-    lines = [f"# 수집 범위 ({meta['collected_at']} 수집, 기간: {window_text})", "", "| 소스 | 상태 | 건수 | 사유 |", "|---|---|---|---|"]
+    lines = [f"# 수집 범위 ({meta['collected_at']} 수집, 기간: {window_text})", "", "| 소스 | 상태 | 레코드(행) 수 | 사유 |", "|---|---|---|---|"]
     lines += [f"| {r['label']} | {r['status']} | {r['rows']} | {r['reason'][:120]} |" for r in public]
     (out / "coverage.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
