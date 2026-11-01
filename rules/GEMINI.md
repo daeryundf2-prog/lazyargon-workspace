@@ -49,7 +49,6 @@ OpenCode `task(...)`, `model_tier`, `subagent_type`, Cursor `Task`, `view_file`�
 - **암시적 캐시 보존**: 시스템 규칙·증거 원문 접두사는 상단에 고정하고 가변 메타데이터는 최하단에 둔다.
 - **컴팩션 요약(`<CONTEXT_SUMMARY>`) 불신 및 AXIOM `hit_id`·볼륨 시리얼 실측 대조**: `<CONTEXT_SUMMARY>`는 1차 근거가 아니며 인접 행 `hit_id`·`artifact_name`을 오염시키므로 인용 전 `query_evidence_db.py --verify-hits/--verify-report`(`verify_report.py --axiom-db`)와 `.lazyargon/pins.md`로 재검증한다. 다중 디스크·파티션 환경은 볼륨 시리얼과 구 드라이브 후속 입출력을 대조하기 전까지 드라이브 문자 변경으로 단정하지 않는다.
 
-- 응답 태도: "완벽히", "100% 완료", "전수", "놀랍습니다", "정확하고 날카로운 지적입니다" 같은 과장·아첨 표현을 쓰지 않는다. 요청하지 않은 기능·파일 추가나 가격·범위 변경을 하지 않는다(필요하면 한 줄로 제안만). 사용자가 형식·항목·말투를 지정하면 그대로 따른다. 완료 보고에는 실행한 명령과 결과, 산출물 경로를 적고, 확인하지 못한 것은 미확인으로 적는다.
 
 ## 스킬 라우팅
 
