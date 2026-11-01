@@ -153,18 +153,24 @@ const NORMAL_STOP_REASONS = new Set(['NO_TOOL_CALL', 'model_stop']);
 const RISKY_CLAIMS = [
 	{
 		kind: '부재·불가 단정',
-		re: /(?:기능|지원|플러그인|파일|기록|데이터|흔적|도구|방법|권한|모듈|옵션|명령)(?:이|은|는|가|도)?\s*(?:전혀\s*)?(?:없[습다음어]|존재하지\s*않)|지원(?:하|되)지\s*않|불가능(?:합|하다)|할\s*수\s*없[습다]|안\s*됩니다|되지\s*않습니다/,
+		re: /(?:기능|지원|플러그인|파일|기록|데이터|흔적|도구|방법|권한|모듈|옵션|명령|엔드포인트|설정|API|함수|이슈|키|패키지|라이브러리)(?:이|은|는|가|도)?\s*(?:전혀\s*)?(?:없[습다음어]|존재하지\s*않)|(?:지원|제공)(?:하|되)지\s*않|설치(?:되어|돼)\s*있지\s*않|사용되지\s*않|적이?\s*없[습다었]|불가능(?:합|하다)|할\s*수\s*없[습다]|안\s*됩니다|되지\s*않습니다|[Tt]here\s+(?:is|are)\s+no\b|\bno\s+such\b|\bdoes(?:n't|\s+not)\s+(?:support|exist|have)\b|\bis\s+not\s+supported\b/,
 	},
-	{ kind: '전체·전부 단정', re: /(?:모두|전부|두\s*번\s*모두|빠짐없이)\s*\S{0,8}?(?:맞|통과|확인|일치|정상|성공|동작|검증)/ },
+	{ kind: '전체·전부 단정', re: /(?:모두|전부|모든|빠짐없이|하나(?:씩|하나)\s*다|일일이)\s*(?:[^\s.,]{0,8}\s+){0,2}?[^\s.,]{0,8}?(?:맞|통과|확인|일치|정상|성공|동작|검증|열립|표시)|\b(?:all|every|both|each)\b[^.]{0,40}?\b(?:pass(?:ed|es)?|returns?|returned|works?|worked|match(?:es|ed)?|identical|succeed(?:s|ed)?)\b/i },
 	{
 		kind: '실행 환경 단정',
-		re: /(?:Linux|리눅스|Windows|윈도우|macOS|맥|Android|안드로이드|iOS)(?:\s*·\s*\S+)?에서(?:도|는)?\s*(?:[^\s.,]{1,6}\s+){0,2}(?:동작|작동|실행|사용|돌아)(?:한다|합니다|됩니다|된다|가능|갑니다|간다)/,
+		re: /(?:Linux|리눅스|Windows|윈도우|macOS|맥|Android|안드로이드|iOS|Ubuntu|우분투|Debian|크롬|Chrome|사파리|Safari|Python\s*\d[\d.]*|Node(?:\.js)?\s*\d+)(?:\s*\d[\d.]*)?(?:\s*·\s*\S+)?(?:\s*(?:이상|이하))?(?:에서|이면)(?:도|는)?\s*(?:[^\s.,]{1,8}\s+){0,4}(?:동작|작동|실행|사용|돌아|표시)(?:한다|합니다|됩니다|된다|가능|갑니다|간다)|\b(?:works?|runs?)\s+(?:fine\s+|correctly\s+|well\s+)?on\s+(?:Linux|Windows|macOS|Ubuntu|Android|iOS)\b/,
 	},
 ];
 const SELF_HEDGE_RE = /미확인|확인하지\s*못|확인\s*못|추정|일\s*수\s*있|아직\s*(?:확인|시험|실행)|확인한\s*(?:범위|것만|\d+)|범위\s*(?:내|안)에서|조회한\s*범위|열람할\s*수\s*없|(?:확인|판단|조회|알)할\s*수\s*(?:없|가\s*없)|알\s*수\s*없|확인되지\s*않|예상\s*(?:출력|결과|값|동작)|으로\s*예상/;
 
 const LOOKUP_FAIL_RE = /No such file or directory|cannot (?:find|access|open)|not found|ModuleNotFoundError|No module named|ImportError|Permission denied|Operation not permitted|does not exist|could not be found|No results found|\b0 results\b|Found 0\b|no matches|HTTP (?:403|404|410)/i;
-const FRESH_RE = /최신|latest|newest|최근\s*(?:버전|릴리스|출시|발표)|현재\s*(?:버전|가격|시세|환율|주가|대통령|CEO|대표)|current\s+(?:version|release|price)/i;
+const FRESH_RE = /최신|latest|newest|most\s+recent|as\s+of\s+today|최근\s*(?:버전|릴리스|출시|발표)|가장\s*(?:새로운|최근)|요즘|현재\s*(?:\S{1,15}\s*)?(?:버전|가격|시세|환율|주가|대통령|CEO|대표)|current\s+(?:version|release|price)/i;
+const HOST_ENV_RE = { darwin: /macOS|맥|Mac/, linux: /Linux|리눅스|Ubuntu|우분투/, win32: /Windows|윈도우/ }[process.platform];
+const REMOTE_ENV_RE = /docker|podman|wsl|ssh|vagrant|multipass|limactl|qemu/i;
+const POLICY_RE = /승인|허가|규칙|정책|금지/;
+const RUN_CALL_RE = /run_command|terminal|exec|bash|shell|test/i;
+const PRED_RE = /(?:면|후(?:에)?(?:도)?|으로|로)\s+[^.]{0,30}?(?:통과|성공|해결|유지|동작|작동|복구)(?:합니다|됩니다|한다|된다)|(?:빌드|테스트|배포)(?:는|가)\s*(?:[^\s.]+\s+)?(?:성공|통과)합니다|\bwill\s+(?:pass|succeed|work|fix|resolve)\b|\b(?:fix|patch|change)\s+(?:resolves|fixes|solves)\b/i;
+const KO_NUM = { 두: 2, 세: 3, 네: 4, 다섯: 5 };
 // 사용자가 물은 환경이 이 호스트 OS 가 아니면, 그 환경에서의 실행 결과는 예상일 뿐이다. 실세션(2026-11-01):
 // 'Windows에서 실행하면 무엇이 출력되나' → '`\` (백슬래시)가 출력됩니다.'(macOS 에서 실행하지 않음).
 const OTHER_ENV_RE = {
@@ -173,7 +179,7 @@ const OTHER_ENV_RE = {
 	win32: /Linux|리눅스|Ubuntu|우분투|macOS|맥OS|맥북|Android|안드로이드|iOS|아이폰/i,
 }[process.platform];
 const OUTCOME_RE = /출력(?:됩니다|된다)|나옵니다|나온다|반환(?:합니다|한다|됩니다)|(?:동작|작동)(?:합니다|한다)|실행됩니다|돌아갑니다/;
-const NUM_CLAIM_RE = /(\d[\d,]*(?:\.\d+)?)\s?(건|회|개|명|%|퍼센트)/g;
+const NUM_CLAIM_RE = /(\d[\d,]*(?:\.\d+)?)\s?(건|회|번|개|명|줄|%|퍼센트|MB|GB|KB|ms|초|분|errors?|times|files?|users?|requests?|records?|rows?|lines?|tests?|failures?)/gi;
 
 // 이번 턴(마지막 USER_INPUT 이후)에 실제로 실행한 것: 도구 호출 수, 검색 수, 실패한 조회 수, 도구 출력, 사용자 메시지.
 function turnEvidence(content) {
@@ -200,16 +206,32 @@ function turnEvidence(content) {
 		turnKey: `${start}:${String(steps[start]?.content || '').length}`,
 		calls: calls.length,
 		searches: calls.filter((c) => /search_web|web_search|read_url/i.test(String(c.name || ''))).length,
+		runs: calls.filter((c) => RUN_CALL_RE.test(String(c.name || ''))).length,
+		args: JSON.stringify(calls.map((c) => c.args ?? c.arguments ?? c.input ?? '')),
 		failed: outs.filter((o) => LOOKUP_FAIL_RE.test(o)).length,
 		outputs: outs.join('\n').replace(/(?<=\d),(?=\d{3})/g, ''),
 		user: String(turn[0]?.type === 'USER_INPUT' ? turn[0].content || '' : ''),
 	};
 }
 
+// '점검: 근거 있음 — …' 답은 그대로 믿지 않는다. 인용한 문자열(`…`, "…")이 이번 턴의 도구 출력이나
+// 실행한 명령 인자에 없으면 한 번 더 묻는다(요청당 최대 두 번 규칙 안에서).
+function unsupportedEvidence(message, ev) {
+	if (!message || !ev || !/점검\s*:\s*근거\s*있음/.test(message)) return [];
+	const norm = (s) => s.replace(/\\\\/g, '\\').replace(/\s+/g, ' ').trim();
+	const pool = norm(`${ev.outputs}\n${ev.args || ''}`);
+	const cites = [...message.matchAll(/`([^`\n]{3,200})`|"([^"\n]{3,200})"/g)].map((m) => norm(m[1] || m[2]));
+	const missing = cites.filter((c) => !pool.includes(c));
+	return missing.length
+		? [{ kind: '근거 인용 불일치', sentence: `이번 턴 도구 출력·명령에 없는 인용: ${missing.slice(0, 5).join(' | ')}`.slice(0, 200) }]
+		: [];
+}
+
 function riskySentences(message, ev = null) {
 	const text = message.replace(/```[\s\S]*?```/g, ' ').replace(/`[^`\n]*`/g, ' ');
 	// 부재 단정은 근거가 약한 턴에서만 되묻는다: 조회가 없었거나, 실패했거나, 검색 1~2회뿐인 턴.
-	const weak = !ev || ev.calls === 0 || ev.failed > 0 || (ev.searches > 0 && ev.searches <= 2 && ev.calls === ev.searches);
+	// 빈 결과가 '실패'로 세어지므로, 3회 이상 조회해 일부라도 성공한 턴은 약한 근거로 보지 않는다.
+	const weak = !ev || ev.calls === 0 || (ev.failed > 0 && (ev.calls < 3 || ev.failed === ev.calls)) || (ev.searches > 0 && ev.searches <= 2 && ev.calls === ev.searches);
 	const out = [];
 	for (const s of text.split(/(?<=[.!?。])\s+|\n+/)) {
 		const line = s.trim();
@@ -225,18 +247,42 @@ function riskySentences(message, ev = null) {
 			continue;
 		}
 		// 직접 조회한 경로를 이름으로 대는 부재 문장('…/x.py: 파일 없음')은 그 조회 범위에 맞춘 서술이다.
-		const scoped = ev && (line.match(/[~\w.-]*\/[\w.\/-]+/g) || []).some((t) => t.length > 3 && ev.outputs.includes(t));
-		let hit = RISKY_CLAIMS.find((c) => c.re.test(line) && (c.kind !== '부재·불가 단정' || (weak && !scoped)));
-		// 도구를 하나도 쓰지 않은 턴의 최신·현재 정보는 학습 시점 기억이다. 실세션(2026-11-01): '현재 Python 최신 안정 버전은 3.13입니다.'
-		if (!hit && ev && ev.calls === 0 && FRESH_RE.test(line)) hit = { kind: '확인 안 한 최신·현재 정보' };
-		if (!hit && ev && OTHER_ENV_RE && OTHER_ENV_RE.test(ev.user) && OUTCOME_RE.test(line)) hit = { kind: '실행하지 않은 환경의 결과 단정' };
+		const scoped = ev && (line.match(/[~\w.-]*\/[\w.\/-]+|[\w-]+\.(?:py|js|mjs|ts|json|md|ya?ml|log|sh|txt|go|rs|c)\b/g) || []).some((t) => t.length > 3 && ev.outputs.includes(t));
+		const inOut = (d) => ev && new RegExp(`(?<![\\d.])${d.replace(/\./g, '\\.')}(?![\\d])`).test(ev.outputs);
+		const allOk = () => {
+			const m = line.match(/(\d+)\s*(?:개|번|회|files?|tests?|runs?)|(두|세|네|다섯)\s*(?:번|개|파일|곳)?\s|\b(both)\b/i);
+			const q = m ? Number(m[1] || KO_NUM[m[2]] || 2) : 0;
+			return Boolean(ev && q && (ev.calls >= q || new RegExp(`(?<![\\d])${q}\\s*(?:passed|ok)`).test(ev.outputs)));
+		};
+		let hit = RISKY_CLAIMS.find((c) => {
+			const m = line.match(c.re);
+			if (!m) return false;
+			if (c.kind === '부재·불가 단정') return weak && !scoped && !POLICY_RE.test(line);
+			if (c.kind === '전체·전부 단정') return !allOk();
+			if (c.kind === '실행 환경 단정') return !(HOST_ENV_RE && HOST_ENV_RE.test(m[0]) && ev && ev.calls > 0);
+			return true;
+		});
+		// 웹 조회 없이 쓴 최신·현재 정보는 학습 시점 기억이다(로컬 파일만 본 턴 포함). 실세션(2026-11-01): '현재 Python 최신 안정 버전은 3.13입니다.'
+		if (!hit && ev && ev.searches === 0 && FRESH_RE.test(line) && !(line.match(/[\w.]*\d[\w.]*/g) || []).some((t) => t.length > 1 && ev.outputs.includes(t))) hit = { kind: '확인 안 한 최신·현재 정보' };
+		if (!hit && ev && OTHER_ENV_RE && OTHER_ENV_RE.test(ev.user) && OUTCOME_RE.test(line) && !(ev.runs > 0 && REMOTE_ENV_RE.test(ev.args))) hit = { kind: '실행하지 않은 환경의 결과 단정' };
+		// 이번 턴에 아무것도 실행하지 않고 '하면 통과합니다/해결됩니다' 를 쓰면 예상을 사실로 말한 것이다.
+		if (!hit && ev && ev.runs === 0 && PRED_RE.test(line)) hit = { kind: '실행하지 않은 결과 예측 단정' };
 		if (!hit && ev) {
-			for (const m of line.matchAll(NUM_CLAIM_RE)) {
+			const calc = line.match(/(\d+)\s*[\/÷×*+-]\s*(\d+)/);
+			for (const m of calc && inOut(calc[1]) && inOut(calc[2]) ? [] : line.matchAll(NUM_CLAIM_RE)) {
 				const digits = m[1].replace(/,/g, '');
 				if (Number(digits) < 2) continue;
 				const re = new RegExp(`(?<![\\d.])${digits.replace('.', '\\.')}(?![\\d])`);
 				if (!re.test(ev.outputs) && !re.test(ev.user)) {
 					hit = { kind: `출처 없는 수치(${m[0]})` };
+					break;
+				}
+				// 줄 수(wc -l, 'N lines')를 줄이 아닌 이름(건·명·회)으로 쓴 경우.
+				// ls·find 출력을 wc -l 로 센 것은 항목(파일) 수다. 실세션(2026-11-01): 'ls *.py | wc -l' → '.py 파일 3개' 오탐.
+				const entryCount = /\b(?:ls|find|fd|grep\s+-[a-zA-Z]*l[a-zA-Z]*)\b[^|\n]*\|\s*wc\s+-l/.test(ev.args);
+				const lineCount = (!entryCount && /wc\s+-l/.test(ev.args)) || new RegExp(`(?<![\\d.])${digits}\\s*lines?\\b`, 'i').test(ev.outputs);
+				if (lineCount && !/^(?:줄|lines?)$/i.test(m[2])) {
+					hit = { kind: `줄 수를 다른 이름으로 쓴 수치(${m[0]})` };
 					break;
 				}
 			}
@@ -361,8 +407,21 @@ async function main() {
 	} catch {
 		// 기록 없음 — 첫 질문
 	}
-	const risky = (message ? riskySentences(message, ev) : []).filter((r) => !asked.has(r.kind));
-	if (risky.length && (process.env.LAZYARGON_SELF_CHECK || 'on').trim().toLowerCase() !== 'off') {
+	const risky = [...(message ? riskySentences(message, ev) : []), ...unsupportedEvidence(message, ev)].filter((r) => !asked.has(r.kind));
+	// 증거 없는 완료 선언('모든 검증을 완료했다'): enforce 면 아래 완료 선언 가드가 막는다.
+	// observe 면 그 가드는 기록만 하므로, 기록을 남기고 자기 점검으로 한 번 묻는다(측정: 미루면 '세 파일 모두 통과' 류가 아무 질문 없이 나갔다).
+	const legacyClaim = Boolean(message) && CLAIM_RE.test(message) && !EVIDENCE_RE.test(message);
+	const enforceMode = (process.env.LAZYARGON_STOP_GUARD || '').trim().toLowerCase() === 'enforce';
+	if (risky.length && !(legacyClaim && enforceMode) && (process.env.LAZYARGON_SELF_CHECK || 'on').trim().toLowerCase() !== 'off') {
+		if (legacyClaim) {
+			try {
+				const dir = path.join(observeLogBase(payload), '.lazyargon');
+				fs.mkdirSync(dir, { recursive: true });
+				fs.appendFileSync(path.join(dir, 'stop-guard.jsonl'), `${JSON.stringify({ ts: new Date().toISOString(), mode: 'observe', would_block: true, conversationId: payload.conversationId || null, reason: `[STOP CLAIM GUARD v${GUARD_PACK_VERSION}] 완료 선언에 반증 가능한 증거가 없다(자기 점검으로 대신 물음).`, excerpt: message.slice(0, 400) })}\n`);
+			} catch (err) {
+				process.stderr.write(`stop_claim_guard: observe log failed: ${err.message}\n`);
+			}
+		}
 		try {
 			const dir = path.join(observeLogBase(payload), '.lazyargon');
 			fs.mkdirSync(dir, { recursive: true });

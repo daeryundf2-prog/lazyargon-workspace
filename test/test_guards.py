@@ -313,11 +313,14 @@ class StopClaimGuardTests(unittest.TestCase):
                 input=payload, text=True, encoding="utf-8", capture_output=True, env=env, cwd=str(ROOT),
             )
             self.assertEqual(proc.returncode, 0, proc.stderr)
-            self.assertEqual(proc.stdout.strip(), "{}")
+            # observe: 완료 선언 가드는 막지 않고 기록만 하며, 자기 점검이 한 번 물는다.
+            out = json.loads(proc.stdout)
+            self.assertIn("SELF-CHECK", out.get("reason", ""))
+            self.assertNotIn("반증 가능한 증거가 없다.\n", out.get("reason", ""))
             entries = [json.loads(l) for l in (Path(tmp) / ".lazyargon" / "stop-guard.jsonl").read_text(encoding="utf-8").splitlines()]
-            self.assertEqual(len(entries), 1)
-            self.assertTrue(entries[0]["would_block"])
-            self.assertEqual(entries[0]["conversationId"], "conv-observe")
+            observed = [e for e in entries if e.get("would_block")]
+            self.assertEqual(len(observed), 1)
+            self.assertEqual(observed[0]["conversationId"], "conv-observe")
 
     def test_insufficient_data_strict_abstention_passes(self):
         payload = json.dumps({

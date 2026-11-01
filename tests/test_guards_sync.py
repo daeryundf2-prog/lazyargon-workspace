@@ -151,6 +151,38 @@ def test_stop_claim_guard_flags_outcomes_on_unrun_os(tmp_path, question, message
     assert ("SELF-CHECK" in out.get("reason", "")) is checked, out
 
 
+@pytest.mark.parametrize("message,checked", [
+    ('점검: 근거 있음 — `ls /p/x.py` 실행 결과 "No such file or directory"', False),
+    ('점검: 근거 있음 — `ls /p/x.py` 실행 결과 "x.py 크기 120 bytes"', True),
+])
+def test_stop_claim_guard_checks_cited_evidence_in_self_check_reply(tmp_path, message, checked):
+    steps = [{"type": "USER_INPUT", "content": "q"},
+             {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": "run_command", "args": {"CommandLine": "ls /p/x.py"}}]},
+             {"type": "GENERIC", "content": "ls: /p/x.py: No such file or directory"}]
+    tp = tmp_path / "transcript_full.jsonl"
+    tp.write_text("\n".join(json.dumps(s, ensure_ascii=False) for s in steps), encoding="utf-8")
+    payload = json.dumps({"hook_event_name": "Stop", "cwd": str(tmp_path), "executionNum": 1,
+                          "last_assistant_message": message, "transcriptPath": str(tp)}, ensure_ascii=False)
+    out = json.loads(run_node_script("stop_claim_guard.mjs", stdin_payload=payload).stdout)
+    assert ("근거 인용 불일치" in out.get("reason", "")) is checked, out
+
+
+@pytest.mark.parametrize("command,message,checked", [
+    ("ls -1 /p/scripts/*.py | wc -l", ".py 파일 개수: 3개", False),
+    ("wc -l /p/logs/auth.log", "로그인 기록은 3건입니다.", True),
+])
+def test_stop_claim_guard_wc_l_entries_vs_lines(tmp_path, command, message, checked):
+    steps = [{"type": "USER_INPUT", "content": "q"},
+             {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": "run_command", "args": {"CommandLine": command}}]},
+             {"type": "GENERIC", "content": "Command output:\n       3"}]
+    tp = tmp_path / "transcript_full.jsonl"
+    tp.write_text("\n".join(json.dumps(s, ensure_ascii=False) for s in steps), encoding="utf-8")
+    payload = json.dumps({"hook_event_name": "Stop", "cwd": str(tmp_path), "last_assistant_message": message,
+                          "transcriptPath": str(tp)}, ensure_ascii=False)
+    out = json.loads(run_node_script("stop_claim_guard.mjs", stdin_payload=payload).stdout)
+    assert ("SELF-CHECK" in out.get("reason", "")) is checked, out
+
+
 def test_lookup_guard_warns_on_failed_lookup(tmp_path):
     steps = [{"type": "USER_INPUT", "content": "q"},
              {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": "run_command", "args": {"CommandLine": "ls /x/browsers"}}]},
