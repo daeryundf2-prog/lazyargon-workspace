@@ -68,6 +68,8 @@ def test_stop_claim_guard_blocks_unsupported_claim():
     ("이 파서는 macOS·Linux에서도 동작합니다.", True),
     ("Safari 기록은 권한이 없어 확인하지 못했습니다.", False),
     ("도구 없이는 README 파일의 존재 여부를 확인할 수 없습니다.", False),
+    ("Windows에서 직접 실행해 확인하지는 못했으나, 코드는 Windows에서 문제없이 동작합니다.", True),
+    ("Linux에서는 아직 실행하지 않아 미확인입니다.", False),
     ("문제 없습니다. 테스트 790개가 통과했습니다.", False),
 ])
 def test_stop_claim_guard_self_check_on_risky_claims(tmp_path, message, checked):

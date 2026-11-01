@@ -158,7 +158,7 @@ const RISKY_CLAIMS = [
 	{ kind: '전체·전부 단정', re: /(?:모두|전부|두\s*번\s*모두|빠짐없이)\s*\S{0,8}?(?:맞|통과|확인|일치|정상|성공|동작|검증)/ },
 	{
 		kind: '실행 환경 단정',
-		re: /(?:Linux|리눅스|Windows|윈도우|macOS|맥|Android|안드로이드|iOS)(?:\s*·\s*\S+)?에서(?:도)?\s*(?:정상\s*)?(?:동작|작동|실행|사용)(?:한다|합니다|됩니다|된다|가능)/,
+		re: /(?:Linux|리눅스|Windows|윈도우|macOS|맥|Android|안드로이드|iOS)(?:\s*·\s*\S+)?에서(?:도|는)?\s*(?:[^\s.,]{1,6}\s+){0,2}(?:동작|작동|실행|사용|돌아)(?:한다|합니다|됩니다|된다|가능|갑니다|간다)/,
 	},
 ];
 const SELF_HEDGE_RE = /미확인|확인하지\s*못|확인\s*못|추정|일\s*수\s*있|아직\s*(?:확인|시험|실행)|확인한\s*(?:범위|것만|\d+)|범위\s*(?:내|안)에서|조회한\s*범위|열람할\s*수\s*없|(?:확인|판단|조회|알)할\s*수\s*(?:없|가\s*없)|알\s*수\s*없|확인되지\s*않/;
@@ -204,7 +204,17 @@ function riskySentences(message, ev = null) {
 	const out = [];
 	for (const s of text.split(/(?<=[.!?。])\s+|\n+/)) {
 		const line = s.trim();
-		if (!line || SELF_HEDGE_RE.test(line)) continue;
+		if (!line) continue;
+		if (SELF_HEDGE_RE.test(line)) {
+			// 유보 절과 환경 단정 절이 한 문장에 섞이면 단정 절을 따로 본다. 실세션(2026-11-01):
+			// 'Windows에서 직접 실행해 확인하지는 못했으나, … Windows에서 문제없이 동작합니다.'
+			const env = RISKY_CLAIMS.find((c) => c.kind === '실행 환경 단정');
+			if (line.split(/(?:으나|지만|는데|,)\s*/).some((c) => env.re.test(c) && !SELF_HEDGE_RE.test(c))) {
+				out.push({ kind: env.kind, sentence: line.slice(0, 200) });
+			}
+			if (out.length >= 8) break;
+			continue;
+		}
 		// 직접 조회한 경로를 이름으로 대는 부재 문장('…/x.py: 파일 없음')은 그 조회 범위에 맞춘 서술이다.
 		const scoped = ev && (line.match(/[~\w.-]*\/[\w.\/-]+/g) || []).some((t) => t.length > 3 && ev.outputs.includes(t));
 		let hit = RISKY_CLAIMS.find((c) => c.re.test(line) && (c.kind !== '부재·불가 단정' || (weak && !scoped)));
