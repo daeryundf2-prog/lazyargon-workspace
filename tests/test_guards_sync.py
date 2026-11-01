@@ -121,6 +121,36 @@ def test_stop_claim_guard_asks_once_per_turn_and_skips_scoped_absence(tmp_path):
     assert json.loads(run_node_script("stop_claim_guard.mjs", stdin_payload=capped).stdout) == {}
 
 
+@pytest.mark.parametrize("outputs,message,checked", [
+    ([], "현재 Python의 최신 안정 버전은 Python 3.13입니다.", True),
+    ([], "학습 시점 기준 최신은 3.13이지만 지금은 확인하지 못했습니다.", False),
+    (["Python 3.14.0 released"], "최신 안정 버전은 3.14입니다.", False),
+])
+def test_stop_claim_guard_flags_fresh_facts_without_tools(tmp_path, outputs, message, checked):
+    payload = json.dumps({"hook_event_name": "Stop", "cwd": str(tmp_path), "last_assistant_message": message,
+                          "transcriptPath": _turn_transcript(tmp_path, outputs)}, ensure_ascii=False)
+    out = json.loads(run_node_script("stop_claim_guard.mjs", stdin_payload=payload).stdout)
+    assert ("SELF-CHECK" in out.get("reason", "")) is checked, out
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="호스트 OS 가 macOS 일 때의 다른 환경 판정")
+@pytest.mark.parametrize("question,message,checked", [
+    ("tool.py 를 Windows에서 실행하면 무엇이 출력되나?", "`\\` (백슬래시)가 출력됩니다.", True),
+    ("tool.py 를 Windows에서 실행하면 무엇이 출력되나?", "예상 출력은 \\ 이며 Windows에서 실행하지 못했습니다.", False),
+    ("tool.py 를 실행하면 무엇이 출력되나?", "/ 가 출력됩니다.", False),
+])
+def test_stop_claim_guard_flags_outcomes_on_unrun_os(tmp_path, question, message, checked):
+    steps = [{"type": "USER_INPUT", "content": question},
+             {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": "view_file", "args": {}}]},
+             {"type": "GENERIC", "content": "import os\nprint(os.sep)"}]
+    tp = tmp_path / "transcript_full.jsonl"
+    tp.write_text("\n".join(json.dumps(s, ensure_ascii=False) for s in steps), encoding="utf-8")
+    payload = json.dumps({"hook_event_name": "Stop", "cwd": str(tmp_path), "last_assistant_message": message,
+                          "transcriptPath": str(tp)}, ensure_ascii=False)
+    out = json.loads(run_node_script("stop_claim_guard.mjs", stdin_payload=payload).stdout)
+    assert ("SELF-CHECK" in out.get("reason", "")) is checked, out
+
+
 def test_lookup_guard_warns_on_failed_lookup(tmp_path):
     steps = [{"type": "USER_INPUT", "content": "q"},
              {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": "run_command", "args": {"CommandLine": "ls /x/browsers"}}]},

@@ -161,9 +161,18 @@ const RISKY_CLAIMS = [
 		re: /(?:Linux|리눅스|Windows|윈도우|macOS|맥|Android|안드로이드|iOS)(?:\s*·\s*\S+)?에서(?:도|는)?\s*(?:[^\s.,]{1,6}\s+){0,2}(?:동작|작동|실행|사용|돌아)(?:한다|합니다|됩니다|된다|가능|갑니다|간다)/,
 	},
 ];
-const SELF_HEDGE_RE = /미확인|확인하지\s*못|확인\s*못|추정|일\s*수\s*있|아직\s*(?:확인|시험|실행)|확인한\s*(?:범위|것만|\d+)|범위\s*(?:내|안)에서|조회한\s*범위|열람할\s*수\s*없|(?:확인|판단|조회|알)할\s*수\s*(?:없|가\s*없)|알\s*수\s*없|확인되지\s*않/;
+const SELF_HEDGE_RE = /미확인|확인하지\s*못|확인\s*못|추정|일\s*수\s*있|아직\s*(?:확인|시험|실행)|확인한\s*(?:범위|것만|\d+)|범위\s*(?:내|안)에서|조회한\s*범위|열람할\s*수\s*없|(?:확인|판단|조회|알)할\s*수\s*(?:없|가\s*없)|알\s*수\s*없|확인되지\s*않|예상\s*(?:출력|결과|값|동작)|으로\s*예상/;
 
 const LOOKUP_FAIL_RE = /No such file or directory|cannot (?:find|access|open)|not found|ModuleNotFoundError|No module named|ImportError|Permission denied|Operation not permitted|does not exist|could not be found|No results found|\b0 results\b|Found 0\b|no matches|HTTP (?:403|404|410)/i;
+const FRESH_RE = /최신|latest|newest|최근\s*(?:버전|릴리스|출시|발표)|현재\s*(?:버전|가격|시세|환율|주가|대통령|CEO|대표)|current\s+(?:version|release|price)/i;
+// 사용자가 물은 환경이 이 호스트 OS 가 아니면, 그 환경에서의 실행 결과는 예상일 뿐이다. 실세션(2026-11-01):
+// 'Windows에서 실행하면 무엇이 출력되나' → '`\` (백슬래시)가 출력됩니다.'(macOS 에서 실행하지 않음).
+const OTHER_ENV_RE = {
+	darwin: /Windows|윈도우|Linux|리눅스|Ubuntu|우분투|Android|안드로이드|iOS|아이폰/i,
+	linux: /Windows|윈도우|macOS|맥OS|맥북|Android|안드로이드|iOS|아이폰/i,
+	win32: /Linux|리눅스|Ubuntu|우분투|macOS|맥OS|맥북|Android|안드로이드|iOS|아이폰/i,
+}[process.platform];
+const OUTCOME_RE = /출력(?:됩니다|된다)|나옵니다|나온다|반환(?:합니다|한다|됩니다)|(?:동작|작동)(?:합니다|한다)|실행됩니다|돌아갑니다/;
 const NUM_CLAIM_RE = /(\d[\d,]*(?:\.\d+)?)\s?(건|회|개|명|%|퍼센트)/g;
 
 // 이번 턴(마지막 USER_INPUT 이후)에 실제로 실행한 것: 도구 호출 수, 검색 수, 실패한 조회 수, 도구 출력, 사용자 메시지.
@@ -218,6 +227,9 @@ function riskySentences(message, ev = null) {
 		// 직접 조회한 경로를 이름으로 대는 부재 문장('…/x.py: 파일 없음')은 그 조회 범위에 맞춘 서술이다.
 		const scoped = ev && (line.match(/[~\w.-]*\/[\w.\/-]+/g) || []).some((t) => t.length > 3 && ev.outputs.includes(t));
 		let hit = RISKY_CLAIMS.find((c) => c.re.test(line) && (c.kind !== '부재·불가 단정' || (weak && !scoped)));
+		// 도구를 하나도 쓰지 않은 턴의 최신·현재 정보는 학습 시점 기억이다. 실세션(2026-11-01): '현재 Python 최신 안정 버전은 3.13입니다.'
+		if (!hit && ev && ev.calls === 0 && FRESH_RE.test(line)) hit = { kind: '확인 안 한 최신·현재 정보' };
+		if (!hit && ev && OTHER_ENV_RE && OTHER_ENV_RE.test(ev.user) && OUTCOME_RE.test(line)) hit = { kind: '실행하지 않은 환경의 결과 단정' };
 		if (!hit && ev) {
 			for (const m of line.matchAll(NUM_CLAIM_RE)) {
 				const digits = m[1].replace(/,/g, '');
@@ -241,6 +253,7 @@ function selfCheckReason(risky) {
 		'- 없다·안 된다: 조회로 직접 본 범위(예: "그 경로에 파일 없음")는 사실이므로 그대로 쓴다. 그 범위를 넘어 넓힌 말(예: "기능이 없다")만 "확인하지 못했다"로 바꾼다. 조회가 실패했으면 그 조회로는 아무것도 단정하지 않는다.',
 		'- 모두·전부: 하나하나 확인했는가? 일부만 확인했으면 확인한 범위를 적는다.',
 		'- 숫자: 이번 턴 도구 출력에 있는 값인가? 실제로 센 대상의 이름으로 적었는가? (예: 로그 줄 수를 로그인 횟수로 쓰지 않는다) 계산한 값이면 계산식을 적는다.',
+		'- 최신·현재 정보: 이번 턴에 확인한 출처가 있는가? 없으면 "학습 시점 기준이며 지금은 확인하지 못했다"로 쓴다.',
 		'- ○○에서 동작: 그 환경에서 실제로 실행했는가? 아니면 "미확인"으로 쓴다.',
 		'점검할 문장:',
 		...risky.map((r, i) => `${i + 1}. [${r.kind}] ${r.sentence}`),
