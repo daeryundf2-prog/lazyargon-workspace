@@ -118,6 +118,20 @@ class EvidenceGuardTests(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 1)
 
+    def test_python_module_name_ending_in_evtx_is_not_a_file(self):
+        ok = json.dumps({"toolCall": {"name": "run_command", "args": {"CommandLine": 'python3 -c "import dissect.eventlog.evtx; print(1)"'}}})
+        self.assertEqual(run_guard("evidence_guard.mjs", ["pre-tool-use"], stdin_payload=ok).returncode, 0)
+        bad = json.dumps({"toolCall": {"name": "run_command", "args": {"CommandLine": "echo x > Security.evtx"}}})
+        self.assertEqual(run_guard("evidence_guard.mjs", ["pre-tool-use"], stdin_payload=bad).returncode, 1)
+
+    def test_heredoc_body_mentioning_evidence_files_is_not_a_write_target(self):
+        body = "cat << 'EOF' > /tmp/x/draft.py\nrows = ['Logs/Security.evtx', 'memory.raw']\nEOF"
+        ok = json.dumps({"toolCall": {"name": "run_command", "args": {"CommandLine": body}}})
+        self.assertEqual(run_guard("evidence_guard.mjs", ["pre-tool-use"], stdin_payload=ok).returncode, 0)
+        into_evidence = "cat << 'EOF' > /tmp/x/Security.evtx\nfake\nEOF"
+        bad = json.dumps({"toolCall": {"name": "run_command", "args": {"CommandLine": into_evidence}}})
+        self.assertEqual(run_guard("evidence_guard.mjs", ["pre-tool-use"], stdin_payload=bad).returncode, 1)
+
     def test_memory_dump_extensions_are_blocked(self):
         for name in ("mem.vmem", "disk.img", "backup.l01", "image.ad1"):
             proc = run_guard(
@@ -461,6 +475,16 @@ class StatutoryBoundsTests(unittest.TestCase):
             )
             self.assertEqual(proc.returncode, 1)
             self.assertIn("HALLUCINATION GUARD", proc.stderr)
+
+    def test_hallucination_guard_skips_agent_internal_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            agents_md = Path(tmp) / "AGENTS.md"
+            agents_md.write_text("# AGENTS.md\n보고서 검증 규칙: 민법 제1500조 같은 허위 조문 금지.", encoding="utf-8")
+            proc = run_guard(
+                "hallucination_guard.mjs",
+                stdin_payload=json.dumps({"TargetFile": str(agents_md), "userPrompt": "규칙 보고서 업데이트"}),
+            )
+            self.assertEqual(proc.returncode, 0)
 
     def test_verify_report_catches_spaced_statute(self):
         with tempfile.TemporaryDirectory() as tmp:

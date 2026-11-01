@@ -414,8 +414,13 @@ const INLINE_EXEC_RES = [
 	/\bpowershell\b[^|&;\n]*\s-enc(odedcommand)?\b/i,
 ];
 
-function findViolation(texts) {
-	for (const text of texts) {
+// heredoc 본문(cat << 'EOF' > out.py … EOF)은 쓰기 대상이 아니라 쓰는 내용이다. 첫 줄(대상 포함)만 검사한다.
+function stripHeredocBodies(text) {
+	return text.replace(/(<<-?\s*['"]?(\w+)['"]?[^\n]*)\n[\s\S]*?\n\2[ \t]*(?=\n|$)/g, '$1');
+}
+
+function findViolation(rawTexts) {
+	for (const text of rawTexts.map(stripHeredocBodies)) {
 		for (const re of INLINE_EXEC_RES) {
 			if (re.test(text)) return 'inline code execution (use a script file + audit instead)';
 		}
@@ -429,7 +434,10 @@ function findViolation(texts) {
 			if (re.test(text)) return `pattern ${label}`;
 		}
 		if (readOnly) continue;
+		const imports = /\b(?:import|from)\s/.test(text);
 		for (const token of pathTokens([text])) {
+			// 'import dissect.eventlog.evtx' 의 모듈명은 파일 경로가 아니다(점 2개 이상, 소문자 식별자, 경로 구분자 없음).
+			if (imports && /^[a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*){2,}$/.test(token)) continue;
 			if (PROTECTED_EXTENSIONS.test(token)) return `protected extension: ${path.basename(token)}`;
 			if (EVIDENCE_SEGMENT_RE.test(token)) return 'evidence directory';
 		}
