@@ -13,7 +13,7 @@ import { stdin } from "node:process";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-function readStdin(limitMs) {
+function readStdin(limitMs = 50) {
 	return new Promise((resolve) => {
 		if (stdin.isTTY) {
 			resolve("");
@@ -25,11 +25,22 @@ function readStdin(limitMs) {
 			if (settled) return;
 			settled = true;
 			clearTimeout(timer);
+			try { stdin.pause(); } catch {}
 			stdin.removeAllListeners();
 			resolve(value);
 		};
 		const timer = setTimeout(() => finish(Buffer.concat(chunks).toString("utf8")), limitMs);
-		stdin.on("data", (chunk) => chunks.push(chunk));
+		if (typeof timer.unref === "function") timer.unref();
+		stdin.on("data", (chunk) => {
+			chunks.push(chunk);
+			const acc = Buffer.concat(chunks).toString("utf8").trim();
+			if ((acc.startsWith("{") && acc.endsWith("}")) || (acc.startsWith("[") && acc.endsWith("]"))) {
+				try {
+					JSON.parse(acc);
+					finish(acc);
+				} catch {}
+			}
+		});
 		stdin.on("end", () => finish(Buffer.concat(chunks).toString("utf8")));
 		stdin.on("error", () => finish(""));
 	});
@@ -54,7 +65,7 @@ async function collectSources() {
 	for (const k of ["ANTIGRAVITY_TOOL_INPUT", "TOOL_INPUT", "ANTIGRAVITY_TARGET_FILE", "TARGET_FILE"]) {
 		if (process.env[k]) push(process.env[k], `env:${k}`);
 	}
-	push(await readStdin(1500), "stdin");
+	push(await readStdin(50), "stdin");
 	for (const arg of process.argv.slice(2)) push(arg, "argv");
 	return sources;
 }
@@ -168,6 +179,7 @@ function extractTargetFromNode(node, out) {
 	if (!node || typeof node !== "object") return;
 	for (const [key, value] of Object.entries(node)) {
 		if (typeof value === "string" && value) {
+			if (key === "Target" && ("Path" in node || "Replacement" in node)) continue;
 			if (TARGET_KEY_RE.test(key)) out.push({ value, isCommand: false });
 			else if (/^(command|cmd|command_line|commandline|script|args)$/i.test(key)) out.push({ value, isCommand: true });
 		} else if (value && typeof value === "object") {
@@ -176,7 +188,7 @@ function extractTargetFromNode(node, out) {
 	}
 }
 
-function readTailLines(filePath, maxLines = 50, maxBytes = 512 * 1024) {
+function readTailLines(filePath, maxLines = 5, maxBytes = 32 * 1024) {
 	const stat = fs.statSync(filePath);
 	let text;
 	if (stat.size <= maxBytes) {
@@ -208,7 +220,7 @@ function extractFromTranscript(payloadOrPath) {
 
 	for (const tp of paths) {
 		try {
-			const lines = readTailLines(tp, 50);
+			const lines = readTailLines(tp, 5);
 			const parsedSteps = [];
 			let hasTruncatedToolCalls = false;
 			for (const line of lines) {

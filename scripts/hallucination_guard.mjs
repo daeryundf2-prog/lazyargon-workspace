@@ -199,6 +199,7 @@ function extractTargetFromNode(node, out) {
 	if (!node || typeof node !== 'object') return;
 	for (const [key, value] of Object.entries(node)) {
 		if (typeof value === 'string' && value) {
+			if (key === 'Target' && ('Path' in node || 'Replacement' in node)) continue;
 			if (TARGET_KEY_RE.test(key)) out.push({ value, isCommand: false });
 			else if (/^(command|cmd|command_line|commandline|script|args)$/i.test(key)) out.push({ value, isCommand: true }); // bash 리다이렉트 대상
 		} else if (value && typeof value === 'object') {
