@@ -234,6 +234,10 @@ function extractToolDataFromCall(tc) {
 	return { toolName, targetFile, codeContent, commandLine };
 }
 
+// 마지막 줄이 32KB 창보다 길면(큰 쓰기 직후) 창 안에 완결된 줄이 없어 0줄이 된다.
+// 그때만 예전 상한(512KB)으로 한 번 더 읽는다.
+const TAIL_FALLBACK_BYTES = 512 * 1024;
+
 function readTailLines(filePath, maxLines = 5, maxBytes = 32 * 1024) {
 	const stat = fs.statSync(filePath);
 	let text;
@@ -241,14 +245,17 @@ function readTailLines(filePath, maxLines = 5, maxBytes = 32 * 1024) {
 		text = fs.readFileSync(filePath, 'utf8');
 	} else {
 		const fd = fs.openSync(filePath, 'r');
+		let complete = true;
 		try {
 			const buf = Buffer.allocUnsafe(maxBytes);
 			fs.readSync(fd, buf, 0, maxBytes, stat.size - maxBytes);
 			const nlIdx = buf.indexOf(0x0a);
+			complete = nlIdx >= 0 && nlIdx < maxBytes - 1;
 			text = (nlIdx >= 0 ? buf.subarray(nlIdx + 1) : buf).toString('utf8');
 		} finally {
 			fs.closeSync(fd);
 		}
+		if (!complete && maxBytes < TAIL_FALLBACK_BYTES) return readTailLines(filePath, maxLines, TAIL_FALLBACK_BYTES);
 	}
 	return text.split(/\r?\n/).filter((l) => l.trim().length > 0).slice(-maxLines).reverse();
 }

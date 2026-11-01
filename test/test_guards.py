@@ -221,6 +221,45 @@ class LateStdinTests(unittest.TestCase):
                     self.assertLess(elapsed, 4.0)
 
 
+class TranscriptTailTests(unittest.TestCase):
+    """트랜스크립트 마지막 줄이 32KB 꼬리 창보다 길면 도구 호출을 못 찾고 통과시키던 회귀."""
+
+    @staticmethod
+    def _write_transcript(path, target, filler):
+        steps: list[dict[str, object]] = [
+            {"step_index": i, "source": "MODEL", "type": "GENERIC", "status": "DONE", "content": "ok"} for i in range(1, 5)
+        ]
+        steps.append({
+            "step_index": 5, "source": "MODEL", "type": "PLANNER_RESPONSE", "status": "DONE",
+            "tool_calls": [{"name": "write_to_file", "args": {
+                "TargetFile": json.dumps(target, ensure_ascii=False),
+                "CodeContent": json.dumps(filler, ensure_ascii=False),
+            }}],
+        })
+        path.write_text("".join(json.dumps(s, ensure_ascii=False) + "\n" for s in steps), encoding="utf-8")
+
+    def test_write_in_a_42kb_last_transcript_line_is_still_blocked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "검토_보고서.md"
+            report.write_text("# 보고서\n유출 확정이다.\n", encoding="utf-8")
+            brief = Path(tmp) / "소장_초안.md"
+            brief.write_text("# 소장\n원고는 민법 제1500조에 기하여 청구한다.", encoding="utf-8")
+            cases = [
+                ("evidence_guard.mjs", ["pre-tool-use"], "evidence/usb.raw"),
+                ("hallucination_guard.mjs", [], str(report)),
+                ("legal_factuality_guard.mjs", [], str(brief)),
+            ]
+            for script, argv, target in cases:
+                with self.subTest(script=script):
+                    tp = Path(tmp) / f"{script}.jsonl"
+                    self._write_transcript(tp, target, "가" * 14000)
+                    last_line = tp.read_text(encoding="utf-8").splitlines()[-1]
+                    self.assertGreater(len(last_line.encode("utf-8")), 32 * 1024)
+                    payload = json.dumps({"conversationId": "tail", "transcriptPath": str(tp), "stepIdx": 6})
+                    proc = run_guard(script, argv, stdin_payload=payload, cwd=tmp)
+                    self.assertEqual(proc.returncode, 1, proc.stderr)
+
+
 class HallucinationGuardHookTests(unittest.TestCase):
     def test_korean_report_with_forbidden_phrase_is_blocked(self):
         with tempfile.TemporaryDirectory() as tmp:

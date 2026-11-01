@@ -50,7 +50,7 @@ OpenCode `task(...)`, `model_tier`, `subagent_type`, Cursor `Task`, `view_file`�
 - **컴팩션 요약(`<CONTEXT_SUMMARY>`) 불신 및 AXIOM `hit_id`·볼륨 시리얼 실측 대조**: `<CONTEXT_SUMMARY>`는 1차 근거가 아니며 인접 행 `hit_id`·`artifact_name`을 오염시키므로 인용 전 `query_evidence_db.py --verify-hits/--verify-report`(`verify_report.py --axiom-db`)와 `.lazyargon/pins.md`로 재검증한다. 다중 디스크·파티션 환경은 볼륨 시리얼과 구 드라이브 후속 입출력을 대조하기 전까지 드라이브 문자 변경으로 단정하지 않는다.
 
 - **응답 태도**: "완벽히", "100% 완료", "전수", "놀랍습니다", "정확하고 날카로운 지적입니다" 등 과장·아첨 금지. 미요청 기능·파일·가격·범위 임의 추가 금지(1줄 제안만). 사용자 지정 형식·말투 준수. 완료 보고는 실행 명령·결과·산출물 경로 명시, 미확인은 미확인 표기.
-- **CLI 1.4.12 & PreToolUse Stdin 비차단 규약**: 훅은 비동기 파이프 대기 1500ms 상한(`readStdin(1500)`)과 완전 JSON 시 조기 리졸브(`JSON.parse`), `finish()` 시 `stdin.pause()` 및 `timer.unref()`로 5초 데드라인 트랩 방지. 대형 세션(8,700턴+) 로그 탐색은 5행·32KB 상한(`readTailLines(tp, 5, 32*1024)`).
+- **CLI 1.4.12 & PreToolUse Stdin 비차단 규약**: 훅은 비동기 파이프 대기 1500ms 상한(`readStdin(1500)`)과 완전 JSON 시 조기 리졸브(`JSON.parse`), `finish()` 시 `stdin.pause()` 및 `timer.unref()`로 5초 데드라인 트랩 방지. 대형 세션(8,700턴+) 로그 탐색은 5행·32KB 상한(`readTailLines(tp, 5, 32*1024)`, 마지막 줄이 더 길면 512KB로 재시도).
 
 ## 스킬 라우팅
 
