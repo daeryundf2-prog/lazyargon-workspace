@@ -183,6 +183,24 @@ def test_stop_claim_guard_wc_l_entries_vs_lines(tmp_path, command, message, chec
     assert ("SELF-CHECK" in out.get("reason", "")) is checked, out
 
 
+@pytest.mark.parametrize("command,output,warned", [
+    ("Test-Path C:\\temp\\registry_parser.py", "False", True),
+    ("Test-Path C:\\temp\\tool.py", "True", False),
+    ("Get-ChildItem C:\\temp\\reports", "Get-ChildItem : '\uacbd\ub85c\ub97c \ucc3e\uc744 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4' ... ItemNotFoundException", True),
+    ("Get-Content C:\\temp\\a.txt", "hello", False),
+])
+def test_lookup_guard_powershell_lookups(tmp_path, command, output, warned):
+    steps = [{"type": "USER_INPUT", "content": "q"},
+             {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": "run_command", "args": {"CommandLine": command}}]},
+             {"type": "GENERIC", "step_index": 2, "content": f"Command exited with code 0.\n\nCommand output:\n{output}\n"}]
+    tp = tmp_path / "transcript_full.jsonl"
+    tp.write_text("\n".join(json.dumps(s, ensure_ascii=False) for s in steps), encoding="utf-8")
+    payload = json.dumps({"conversationId": "ps1", "toolCall": {"name": "run_command", "args": {"CommandLine": command}},
+                          "stepIdx": 1, "cwd": str(tmp_path), "transcriptPath": str(tp)})
+    proc = run_node_script("lookup_guard.mjs", stdin_payload=payload)
+    assert ("[LOOKUP GUARD] WARN" in proc.stderr) is warned, proc.stderr
+
+
 def test_lookup_guard_warns_on_failed_lookup(tmp_path):
     steps = [{"type": "USER_INPUT", "content": "q"},
              {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": "run_command", "args": {"CommandLine": "ls /x/browsers"}}]},

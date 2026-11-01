@@ -125,6 +125,17 @@ class EvidenceGuardTests(unittest.TestCase):
         bad = json.dumps({"toolCall": {"name": "run_command", "args": {"CommandLine": "echo x > Security.evtx"}}})
         self.assertEqual(run_guard("evidence_guard.mjs", ["pre-tool-use"], stdin_payload=bad).returncode, 1)
 
+    def test_windows_parse_ntfs_read_with_encoding_preamble_is_allowed(self):
+        def code(cmd):
+            payload = json.dumps({"toolCall": {"name": "run_command", "args": {"CommandLine": cmd}}})
+            return run_guard("evidence_guard.mjs", ["pre-tool-use"], stdin_payload=payload).returncode
+        parse = "python scripts\\parse_ntfs_artifacts.py C:\\case\\Security.evtx -a eventlogs -o C:\\out\\events.json"
+        self.assertEqual(code(parse), 0)
+        self.assertEqual(code("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n" + parse), 0)
+        self.assertEqual(code("$env:PYTHONUTF8=1; " + parse), 0)
+        self.assertEqual(code("python scripts\\parse_ntfs_artifacts.py C:\\case\\Security.evtx -a eventlogs -o C:\\case\\copy.evtx"), 1)
+        self.assertEqual(code("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\nRemove-Item C:\\case\\Security.evtx"), 1)
+
     def test_heredoc_body_mentioning_evidence_files_is_not_a_write_target(self):
         body = "cat << 'EOF' > /tmp/x/draft.py\nrows = ['Logs/Security.evtx', 'memory.raw']\nEOF"
         ok = json.dumps({"toolCall": {"name": "run_command", "args": {"CommandLine": body}}})

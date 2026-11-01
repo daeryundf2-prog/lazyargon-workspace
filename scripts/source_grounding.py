@@ -581,6 +581,9 @@ def check(report_text: str, source_paths: list[str], timeline_text: str = "") ->
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Windows 기본 출력 인코딩(cp949)으로 나가면 UTF-8 로 읽는 호출자(훅·테스트)가 JSON 을 못 읽는다.
+    for stream in (sys.stdout, sys.stderr):
+        getattr(stream, "reconfigure", lambda **_: None)(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description="보고서-원본 자료 1:1 대조 (인용·화자·시각·건수·금액·첨부)")
     ap.add_argument("report")
     ap.add_argument("--sources", nargs="+", default=[], help="자료 폴더 또는 파일")

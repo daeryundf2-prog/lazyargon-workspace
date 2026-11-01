@@ -163,7 +163,7 @@ const RISKY_CLAIMS = [
 ];
 const SELF_HEDGE_RE = /미확인|확인하지\s*못|확인\s*못|추정|일\s*수\s*있|아직\s*(?:확인|시험|실행)|확인한\s*(?:범위|것만|\d+)|범위\s*(?:내|안)에서|조회한\s*범위|열람할\s*수\s*없|(?:확인|판단|조회|알)할\s*수\s*(?:없|가\s*없)|알\s*수\s*없|확인되지\s*않|예상\s*(?:출력|결과|값|동작)|으로\s*예상/;
 
-const LOOKUP_FAIL_RE = /No such file or directory|cannot (?:find|access|open)|not found|ModuleNotFoundError|No module named|ImportError|Permission denied|Operation not permitted|does not exist|could not be found|No results found|\b0 results\b|Found 0\b|no matches|HTTP (?:403|404|410)/i;
+const LOOKUP_FAIL_RE = /No such file or directory|cannot (?:find|access|open)|not found|ModuleNotFoundError|No module named|ImportError|Permission denied|Operation not permitted|does not exist|could not be found|No results found|\b0 results\b|Found 0\b|no matches|HTTP (?:403|404|410)|ObjectNotFound|ItemNotFoundException|PathNotFound|경로를 찾을 수 없|찾을 수 없습니다/i;
 const FRESH_RE = /최신|latest|newest|most\s+recent|as\s+of\s+today|최근\s*(?:버전|릴리스|출시|발표)|가장\s*(?:새로운|최근)|요즘|현재\s*(?:\S{1,15}\s*)?(?:버전|가격|시세|환율|주가|대통령|CEO|대표)|current\s+(?:version|release|price)/i;
 const HOST_ENV_RE = { darwin: /macOS|맥|Mac/, linux: /Linux|리눅스|Ubuntu|우분투/, win32: /Windows|윈도우/ }[process.platform];
 const REMOTE_ENV_RE = /docker|podman|wsl|ssh|vagrant|multipass|limactl|qemu/i;
