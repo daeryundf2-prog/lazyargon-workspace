@@ -13,7 +13,11 @@ import { stdin } from "node:process";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-function readStdin(limitMs = 50) {
+// 완성된 JSON 은 조기 리졸브로 바로 끝나므로 상한은 호스트가 늦게 보낼 때만 쓰인다.
+// 50ms 일 때 늦게 온 입력을 버리고 통과(fail-open)시켜 1500ms 로 되돌렸다.
+const STDIN_WAIT_MS = 1500;
+
+function readStdin(limitMs = STDIN_WAIT_MS) {
 	return new Promise((resolve) => {
 		if (stdin.isTTY) {
 			resolve("");
@@ -65,7 +69,7 @@ async function collectSources() {
 	for (const k of ["ANTIGRAVITY_TOOL_INPUT", "TOOL_INPUT", "ANTIGRAVITY_TARGET_FILE", "TARGET_FILE"]) {
 		if (process.env[k]) push(process.env[k], `env:${k}`);
 	}
-	push(await readStdin(50), "stdin");
+	push(await readStdin(STDIN_WAIT_MS), "stdin");
 	for (const arg of process.argv.slice(2)) push(arg, "argv");
 	return sources;
 }

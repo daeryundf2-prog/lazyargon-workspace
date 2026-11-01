@@ -25,7 +25,11 @@ const hookType = (process.argv[2] || 'pre-tool-use').replace(/_/g, '-');
 // 서로 다른 소스를 '\n'으로 합쳐 파싱하면 어느 한쪽만 있어도 파싱이 깨진다)
 // ---------------------------------------------------------------------------
 
-function readStdin(limitMs = 50) {
+// 완성된 JSON 은 조기 리졸브로 바로 끝나므로 상한은 호스트가 늦게 보낼 때만 쓰인다.
+// 50ms 일 때 늦게 온 입력을 버리고 통과(fail-open)시켜 1500ms 로 되돌렸다.
+const STDIN_WAIT_MS = 1500;
+
+function readStdin(limitMs = STDIN_WAIT_MS) {
 	return new Promise((resolve) => {
 		if (stdin.isTTY) {
 			resolve('');
@@ -113,7 +117,7 @@ async function collectSources() {
 		if (process.env[k]) push(process.env[k], `env:${k}`);
 	}
 	// 2) stdin JSON (Antigravity 실제 경로)
-	push(await readStdin(50), 'stdin');
+	push(await readStdin(STDIN_WAIT_MS), 'stdin');
 	// 3) CLI 인자로 전달된 JSON/경로 (일부 호스트)
 	for (const arg of process.argv.slice(3)) push(arg, 'argv');
 	return sources;

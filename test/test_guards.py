@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -156,6 +157,68 @@ class EvidenceGuardTests(unittest.TestCase):
             self.assertEqual(len(entry["sha256"]), 64)
             # 구버전이 만드는 이중 체인 로그(미러)는 없어야 한다
             self.assertFalse((Path(tmp) / "audit_trail.jsonl").exists())
+
+
+def run_guard_late_stdin(script, argv=(), payload=None, delay=0.3, cwd=None, kill_after=8.0):
+    """stdin 을 열어 둔 채 delay 초 뒤에 payload 를 쓴다(None 이면 쓰지 않고 파이프를 열어 둔다).
+
+    멈추면 kill_after 초 뒤 강제 종료해 테스트가 실패하게 한다. (returncode, stderr, 경과 초)를 돌려준다.
+    """
+    env = {k: v for k, v in os.environ.items() if k not in ("TOOL_INPUT", "ANTIGRAVITY_TOOL_INPUT")}
+    proc = subprocess.Popen(
+        [NODE, str(ROOT / "scripts" / script), *argv],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, encoding="utf-8", env=env, cwd=str(cwd or ROOT),
+    )
+    stdin, stdout, stderr_pipe = proc.stdin, proc.stdout, proc.stderr
+    assert stdin is not None and stdout is not None and stderr_pipe is not None
+    started = time.monotonic()
+    if payload is not None:
+        time.sleep(delay)  # 늦게 보내는 호스트를 재현하는 것이 이 테스트의 대상이다
+        stdin.write(payload)
+        stdin.close()
+    try:
+        returncode = proc.wait(timeout=kill_after)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        returncode = proc.wait()
+    elapsed = time.monotonic() - started
+    if not stdin.closed:
+        stdin.close()
+    stderr = stderr_pipe.read()
+    stdout.close()
+    stderr_pipe.close()
+    return returncode, stderr, elapsed
+
+
+class LateStdinTests(unittest.TestCase):
+    """stdin 대기 상한이 50ms 일 때 늦게 온 입력을 버리고 통과(fail-open)시키던 회귀."""
+
+    def _blocking_cases(self, tmp):
+        report = Path(tmp) / "검토_보고서.md"
+        report.write_text("# 보고서\n유출 확정이다.\n", encoding="utf-8")
+        brief = Path(tmp) / "소장_초안.md"
+        brief.write_text("# 소장\n원고는 민법 제1500조에 기하여 청구한다.", encoding="utf-8")
+        return [
+            ("evidence_guard.mjs", ["pre-tool-use"], {"tool_input": {"file_path": "C:\\사건기록\\메모리덤프.dmp"}}),
+            ("hallucination_guard.mjs", [], {"tool_input": {"file_path": str(report)}}),
+            ("legal_factuality_guard.mjs", [], {"tool_input": {"file_path": str(brief)}}),
+        ]
+
+    def test_payload_sent_300ms_late_is_still_blocked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for script, argv, payload in self._blocking_cases(tmp):
+                with self.subTest(script=script):
+                    returncode, stderr, _ = run_guard_late_stdin(script, argv, json.dumps(payload), delay=0.3, cwd=tmp)
+                    self.assertEqual(returncode, 1, stderr)
+
+    def test_open_stdin_without_payload_exits_on_its_own(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for script, argv, _ in self._blocking_cases(tmp):
+                with self.subTest(script=script):
+                    returncode, stderr, elapsed = run_guard_late_stdin(script, argv, None, cwd=tmp)
+                    self.assertEqual(returncode, 0, stderr)
+                    self.assertLess(elapsed, 4.0)
 
 
 class HallucinationGuardHookTests(unittest.TestCase):
