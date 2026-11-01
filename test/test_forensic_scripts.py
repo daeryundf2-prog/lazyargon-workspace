@@ -367,6 +367,56 @@ class AuditChainTests(unittest.TestCase):
         self.assertTrue(payload["error"])
         self.assertEqual(payload["count"], 0)
 
+    def test_dissect_records_are_serialized_and_prefetch_grouped(self):
+        import types
+        from unittest import mock
+
+        class WinPath:
+            def __init__(self, p):
+                self.p = p
+
+            def __str__(self):
+                return self.p
+
+        class Rec:
+            def __init__(self, **kw):
+                self.kw = kw
+
+            def _asdict(self):
+                return dict(self.kw)
+
+        pf = [Rec(filename="CALC.EXE", prefetch="CALC.EXE-1.pf", runcount=2, ts=WinPath(t), linkedfile=WinPath(f"\\x\\{n}"))
+              for t in ("2016-01-10 02:12:33", "2016-01-11 22:08:20") for n in range(5)]
+
+        class FakeTarget:
+            def has_function(self, name):
+                return True
+
+            def users(self):
+                return [Rec(name="IEUser", home=WinPath("C:\\Users\\IEUser"), sid="S-1-5-21")]
+
+            def prefetch(self):
+                return pf
+
+            def close(self):
+                pass
+
+        fake = types.ModuleType("dissect.target")
+        fake.Target = types.SimpleNamespace(open=lambda p: FakeTarget())
+        mod = load_module("parse_ntfs_artifacts", "scripts/parse_ntfs_artifacts.py")
+        with tempfile.TemporaryDirectory() as td, mock.patch.dict(sys.modules, {"dissect.target": fake}):
+            out = Path(td) / "o.json"
+            for artifact in ("users", "prefetch"):
+                self.assertEqual(mod.main([td, "-a", artifact, "-o", str(out)]), 0)
+                data = json.loads(out.read_text(encoding="utf-8"))
+                if artifact == "users":
+                    self.assertEqual(data["records"][0]["home"], "C:\\Users\\IEUser")
+                else:
+                    self.assertEqual(data["count"], 1)
+                    rec = data["records"][0]
+                    self.assertEqual((rec["executable"], rec["run_count"], rec["linked_file_count"]), ("CALC.EXE", 2, 5))
+                    self.assertEqual(rec["last_run"], "2016-01-11 22:08:20")
+
     def test_check_tool_gate(self):
         import subprocess
         ok = subprocess.run(

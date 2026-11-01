@@ -38,6 +38,19 @@ Rust 기반 Hayabusa/Chainsaw를 **있으면** 호출하는 래퍼다. `hayabusa
   - exit 0 이면 진행, exit 2 이면 분석 결과를 만들지 않고 설치 안내만 한다 (fail-closed).
 - 도구 부재 시 설치: `powershell -ExecutionPolicy Bypass -File scripts/download_dfir_binaries.ps1` 실행으로 최신 바이너리 설치. 다운로드 후 SHA256을 직접 확인한다.
 
+## Hayabusa/Chainsaw가 없을 때: 기본 파싱
+
+`python scripts/check_tool.py --python-module dissect.target`가 exit 0 이면 탐지 룰 없이 이벤트를 표로 뽑을 수 있다(macOS에서 실행 확인, Linux 미확인).
+
+```bash
+python scripts/parse_ntfs_artifacts.py "Security.evtx" --artifact eventlogs --output events.json   # 파일 하나
+python scripts/parse_ntfs_artifacts.py "Logs" --artifact eventlogs --output events.json            # .evtx 폴더
+```
+
+각 레코드는 시각(UTC)·제공자·EventID·채널·컴퓨터·레코드 번호·원본 파일명과 이벤트 데이터(`data`)를 담는다. 기본 `--limit` 10000건을 넘으면 잘린다. Sigma 탐지·위협 등급은 만들지 않으므로 "탐지됨/악성" 같은 판정은 쓰지 않고, EventID와 값만 인용한다.
+
+macOS에서 Hayabusa/Chainsaw가 필요하면 각 프로젝트의 공식 GitHub 릴리스에 있는 macOS용 파일(Apple Silicon·Intel)을 받는다(2026-11 릴리스에서 확인). `download_dfir_binaries.ps1`은 Windows 전용이다.
+
 ## 하지 않는 일
 - Hayabusa/Chainsaw 미설치 상태에서 Sigma 탐지 결과를 생성
 - MITRE ATT&CK 자동 확정, 법원 적격성 보장

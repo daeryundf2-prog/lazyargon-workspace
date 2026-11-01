@@ -11,9 +11,14 @@ NTFS `$MFT`, `$UsnJrnl:$J`, `$LogFile`, `Prefetch`/`Amcache`/`Shimcache`를 **�
 
 ## 게이트 (명령 만들기 전에 실행)
 
+도구별로 따로 검사한다. 하나가 없다고 다른 도구의 경로까지 막지 않는다.
+
 ```bash
-python scripts/check_tool.py --python-module dissect MFTECmd.exe PECmd.exe   # exit 2 면 결과 생성 금지
+python scripts/check_tool.py --python-module dissect.target   # exit 0 이면 아래 1번(Dissect) 진행
+python scripts/check_tool.py MFTECmd.exe PECmd.exe            # exit 0 이면 아래 2번(EZ-Tools, Windows) 진행
 ```
+
+둘 다 exit 2 면 결과를 만들지 않고 설치 안내만 한다.
 
 ## 핵심 도구 (도구가 있을 때만)
 
@@ -23,8 +28,13 @@ python scripts/check_tool.py --python-module dissect MFTECmd.exe PECmd.exe   # e
    python scripts/parse_ntfs_artifacts.py "disk.raw" --artifact prefetch --output prefetch.json
 
    # 사용자 계정 및 Shimcache 추출
+   python scripts/parse_ntfs_artifacts.py "disk.raw" --artifact users --output users.json
    python scripts/parse_ntfs_artifacts.py "disk.raw" --artifact shimcache --output shimcache.json
    ```
+   - 대상은 디스크 이미지 또는 `Windows/` 폴더가 있는 루트 폴더(타깃에서 복사한 폴더 구조)다. macOS에서 실행을 확인했다(Linux는 미확인).
+   - Prefetch는 `.pf` 파일마다 한 건(실행 파일, 실행 횟수, 실행 시각 목록, 참조 파일 수)으로 나온다.
+   - ShimCache 레코드에 `suspect` 필드가 있으면 해석 실패 가능성이 있다. 다른 도구로 교차 확인하기 전에는 근거로 쓰지 않는다.
+   - `$MFT`·`$UsnJrnl`·Amcache·레지스트리 Run 키·LNK·점프리스트는 이 스크립트가 아직 뽑지 않는다. 설치된 Dissect에는 해당 플러그인이 있지만 스크립트에 연결되지 않았다(지금은 EZ-Tools로 처리).
    - E01은 `ewf` 플러그인 필요. 실패 시 JSON에 `error` 필드가 채워지고 exit 코드 3으로 끝난다 — "레코드 0건"과 파싱 실패를 혼동하지 말 것. `docs/GAPS.md` 참고.
 
 2. **Eric Zimmerman Tools (EZ Tools) — 별도 설치:**

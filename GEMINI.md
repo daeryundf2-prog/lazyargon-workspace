@@ -77,6 +77,7 @@ OpenCode `task(...)`, `model_tier`, `subagent_type`, Cursor `Task`, `view_file`�
 | CCTV/동영상 프레임 | `skills/forensic-video/SKILL.md` |
 | 구간 자르기/필름스트립 | `skills/video-editor/SKILL.md` |
 | DLP 표 정리 | `skills/dlp-leakage-detector/SKILL.md` |
+| 윈도우 이벤트로그(.evtx 파일·폴더)·Prefetch·ShimCache·계정 — 외부 도구 없이 | `python scripts/parse_ntfs_artifacts.py <대상> -a eventlogs\|prefetch\|shimcache\|users -o out.json` |
 | EVTX 헌팅 (BYO Hayabusa/Chainsaw) | `skills/dfir-evtx-hunter/SKILL.md` |
 | MFT/Prefetch (BYO Dissect/EZ-Tools) | `skills/forensic-mft-parser/SKILL.md` |
 | 메모리 래퍼 (BYO MemProcFS) | `skills/memory-triage/SKILL.md` |
@@ -109,7 +110,7 @@ OpenCode `task(...)`, `model_tier`, `subagent_type`, Cursor `Task`, `view_file`�
 | 한국형 개인정보(주민번호·계좌) 마스킹 | `skills/korean-pii-masker/SKILL.md` |
 | 국가법령정보·대법원 판례 검색 | `skills/legal-case-search/SKILL.md` |
 | 소장·준비서면·고소장 초안 작성 | `skills/legal-draft-builder/SKILL.md` |
-| SQLite 증거 DB·카톡 백업 카빙 | `skills/sqlite-evidence-query/SKILL.md` |
+| SQLite 증거 DB·카톡 백업 카빙·브라우저 방문기록(Chrome·Edge `History`, 시각 visit_time/1e6-11644473600 초) | `skills/sqlite-evidence-query/SKILL.md` |
 | 웹페이지 증거 채증(스크린샷·PDF·해시) | `skills/web-evidence-capture/SKILL.md` |
 | 음성 전사(Whisper STT)·영상/이미지 OCR | `skills/media-analysis/SKILL.md` |
 

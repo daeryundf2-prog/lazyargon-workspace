@@ -29,6 +29,7 @@ Antigravity 진입점. 먼저 `GEMINI.md`를 읽고, **레인 하나**만 고른
 | DLP 표 | `../dlp-leakage-detector/SKILL.md` | — |
 | **AI 탐지 / AI 흔적 포렌식** | `../ai-trace-detector/SKILL.md` | — |
 | **딥페이크 기술 레이더 & 포렌식** | `../deepfake-forensic-radar/SKILL.md` | — |
+| 윈도우 이벤트로그·Prefetch·ShimCache·계정 (도구 없이) | `python scripts/parse_ntfs_artifacts.py <대상> -a eventlogs\|prefetch\|shimcache\|users` | — |
 | EVTX 헌팅 (BYO Hayabusa/Chainsaw) | `../dfir-evtx-hunter/SKILL.md` | — |
 | MFT/Prefetch (BYO Dissect/EZ-Tools) | `../forensic-mft-parser/SKILL.md` | — |
 | 메모리 래퍼 (BYO MemProcFS) | `../memory-triage/SKILL.md` | — |
