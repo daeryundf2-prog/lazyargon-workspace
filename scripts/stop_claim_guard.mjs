@@ -165,7 +165,7 @@ const SELF_HEDGE_RE = /미확인|확인하지\s*못|확인\s*못|추정|일\s*�
 
 const LOOKUP_FAIL_RE = /No such file or directory|cannot (?:find|access|open)|not found|ModuleNotFoundError|No module named|ImportError|Permission denied|Operation not permitted|does not exist|could not be found|No results found|\b0 results\b|Found 0\b|no matches|HTTP (?:403|404|410)|ObjectNotFound|ItemNotFoundException|PathNotFound|경로를 찾을 수 없|찾을 수 없습니다/i;
 const FRESH_RE = /최신|latest|newest|most\s+recent|as\s+of\s+today|최근\s*(?:버전|릴리스|출시|발표)|가장\s*(?:새로운|최근)|요즘|현재\s*(?:\S{1,15}\s*)?(?:버전|가격|시세|환율|주가|대통령|CEO|대표)|current\s+(?:version|release|price)/i;
-const HOST_ENV_RE = { darwin: /macOS|맥|Mac/, linux: /Linux|리눅스|Ubuntu|우분투/, win32: /Windows|윈도우/ }[process.platform];
+const HOST_ENV_RE = { darwin: /macOS|맥|Mac/, linux: /Linux|리눅스|Ubuntu|우분투/, win32: /Windows|윈도우|PowerShell|파워셸|cmd\.exe/i }[process.platform];
 const REMOTE_ENV_RE = /docker|podman|wsl|ssh|vagrant|multipass|limactl|qemu/i;
 const POLICY_RE = /승인|허가|규칙|정책|금지/;
 const RUN_CALL_RE = /run_command|terminal|exec|bash|shell|test/i;
@@ -208,7 +208,8 @@ function turnEvidence(content) {
 		searches: calls.filter((c) => /search_web|web_search|read_url/i.test(String(c.name || ''))).length,
 		runs: calls.filter((c) => RUN_CALL_RE.test(String(c.name || ''))).length,
 		args: JSON.stringify(calls.map((c) => c.args ?? c.arguments ?? c.input ?? '')),
-		failed: outs.filter((o) => LOOKUP_FAIL_RE.test(o)).length,
+		// PowerShell Test-Path 는 없는 경로에 exit 0 + 'False' 만 남긴다(Windows QA, 2026-11-02).
+		failed: outs.filter((o) => LOOKUP_FAIL_RE.test(o)).length + (calls.some((c) => /Test-Path/i.test(JSON.stringify(c.args ?? ''))) && outs.some((o) => /(?:^|\n)\s*False\s*(?:\r?\n|$)/.test(o)) ? 1 : 0),
 		outputs: outs.join('\n').replace(/(?<=\d),(?=\d{3})/g, ''),
 		user: String(turn[0]?.type === 'USER_INPUT' ? turn[0].content || '' : ''),
 	};
@@ -247,7 +248,9 @@ function riskySentences(message, ev = null) {
 			continue;
 		}
 		// 직접 조회한 경로를 이름으로 대는 부재 문장('…/x.py: 파일 없음')은 그 조회 범위에 맞춘 서술이다.
-		const scoped = ev && (line.match(/[~\w.-]*\/[\w.\/-]+|[\w-]+\.(?:py|js|mjs|ts|json|md|ya?ml|log|sh|txt|go|rs|c)\b/g) || []).some((t) => t.length > 3 && ev.outputs.includes(t));
+		// Windows 경로(C:\temp\x.py)와, 출력에는 False 만 남고 경로는 명령 인자에만 있는 Test-Path 도 범위 서술로 본다.
+		const seen = ev ? `${ev.outputs}\n${String(ev.args || '').replace(/\\\\/g, '\\')}` : '';
+		const scoped = ev && (line.match(/[A-Za-z]:\\[^\s"'`]+|[~\w.-]*\/[\w.\/-]+|[\w-]+\.(?:py|js|mjs|ts|json|md|ya?ml|log|sh|txt|go|rs|c)\b/g) || []).some((t) => t.length > 3 && seen.includes(t.replace(/[.,)]+$/, '')));
 		const inOut = (d) => ev && new RegExp(`(?<![\\d.])${d.replace(/\./g, '\\.')}(?![\\d])`).test(ev.outputs);
 		const allOk = () => {
 			const m = line.match(/(\d+)\s*(?:개|번|회|files?|tests?|runs?)|(두|세|네|다섯)\s*(?:번|개|파일|곳)?\s|\b(both)\b/i);
@@ -264,7 +267,8 @@ function riskySentences(message, ev = null) {
 		});
 		// 웹 조회 없이 쓴 최신·현재 정보는 학습 시점 기억이다(로컬 파일만 본 턴 포함). 실세션(2026-11-01): '현재 Python 최신 안정 버전은 3.13입니다.'
 		if (!hit && ev && ev.searches === 0 && FRESH_RE.test(line) && !(line.match(/[\w.]*\d[\w.]*/g) || []).some((t) => t.length > 1 && ev.outputs.includes(t))) hit = { kind: '확인 안 한 최신·현재 정보' };
-		if (!hit && ev && OTHER_ENV_RE && OTHER_ENV_RE.test(ev.user) && OUTCOME_RE.test(line) && !(ev.runs > 0 && REMOTE_ENV_RE.test(ev.args))) hit = { kind: '실행하지 않은 환경의 결과 단정' };
+		// 문장 자체가 이 호스트 환경(예: Windows 의 PowerShell)을 말하면 다른 OS 단정이 아니다(Windows QA 오탐, 2026-11-02).
+		if (!hit && ev && OTHER_ENV_RE && OTHER_ENV_RE.test(ev.user) && OUTCOME_RE.test(line) && !(HOST_ENV_RE && HOST_ENV_RE.test(line)) && !(ev.runs > 0 && REMOTE_ENV_RE.test(ev.args))) hit = { kind: '실행하지 않은 환경의 결과 단정' };
 		// 이번 턴에 아무것도 실행하지 않고 '하면 통과합니다/해결됩니다' 를 쓰면 예상을 사실로 말한 것이다.
 		if (!hit && ev && ev.runs === 0 && PRED_RE.test(line)) hit = { kind: '실행하지 않은 결과 예측 단정' };
 		if (!hit && ev) {
@@ -280,7 +284,7 @@ function riskySentences(message, ev = null) {
 				// 줄 수(wc -l, 'N lines')를 줄이 아닌 이름(건·명·회)으로 쓴 경우.
 				// ls·find 출력을 wc -l 로 센 것은 항목(파일) 수다. 실세션(2026-11-01): 'ls *.py | wc -l' → '.py 파일 3개' 오탐.
 				const entryCount = /\b(?:ls|find|fd|grep\s+-[a-zA-Z]*l[a-zA-Z]*)\b[^|\n]*\|\s*wc\s+-l/.test(ev.args);
-				const lineCount = (!entryCount && /wc\s+-l/.test(ev.args)) || new RegExp(`(?<![\\d.])${digits}\\s*lines?\\b`, 'i').test(ev.outputs);
+				const lineCount = (!entryCount && /wc\s+-l/.test(ev.args)) || new RegExp(`^\\s*${digits}\\s+lines?\\b`, 'im').test(ev.outputs); // read_file 머리글·코드 속 'lines' 는 줄 수 출력이 아니다
 				if (lineCount && !/^(?:줄|lines?)$/i.test(m[2])) {
 					hit = { kind: `줄 수를 다른 이름으로 쓴 수치(${m[0]})` };
 					break;

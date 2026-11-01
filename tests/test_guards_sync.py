@@ -201,6 +201,44 @@ def test_lookup_guard_powershell_lookups(tmp_path, command, output, warned):
     assert ("[LOOKUP GUARD] WARN" in proc.stderr) is warned, proc.stderr
 
 
+def _one_call_transcript(tmp_path, user, name, args, output):
+    steps = [{"type": "USER_INPUT", "content": user},
+             {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": name, "args": args}]},
+             {"type": "GENERIC", "step_index": 2, "content": output}]
+    tp = tmp_path / "transcript_full.jsonl"
+    tp.write_text("\n".join(json.dumps(s, ensure_ascii=False) for s in steps), encoding="utf-8")
+    return str(tp)
+
+
+@pytest.mark.parametrize("user,args,output,message,checked", [
+    # Windows QA 2026-11-02: Test-Path 는 출력에 False 만 남기고 경로는 인자에만 있다
+    ("q", {"CommandLine": "Test-Path \"C:\\temp\\lazyqa\\registry_parser.py\""}, "False",
+     "C:\\temp\\lazyqa\\registry_parser.py 경로에 해당 파일이 없습니다.", False),
+    ("q", {"CommandLine": "Test-Path \"C:\\temp\\lazyqa\\registry_parser.py\""}, "False",
+     "엑셀 내보내기 기능이 없습니다.", True),
+    # 호스트 환경을 말하는 문장은 다른 OS 결과 단정이 아니다(맥에서는 macOS 가 호스트)
+    ("Linux 에서도 되나?", {"CommandLine": "python3 tool.py"}, "/", "macOS에서 실행하면 / 가 출력됩니다.", False),
+    # read_file 머리글의 'lines' 는 줄 수 출력이 아니다
+    ("q", {"AbsolutePath": "/p/a.txt"}, "File Path: /p/a.txt\nTotal Lines: 3\nShowing lines 1-3\n1: a\n2: b\n3: c",
+     "파일은 3개 항목입니다.", False),
+])
+def test_stop_claim_guard_windows_qa_cases(tmp_path, user, args, output, message, checked):
+    if "macOS" in message and sys.platform != "darwin":
+        pytest.skip("호스트 OS 가 macOS 일 때의 판정")
+    tp = _one_call_transcript(tmp_path, user, "run_command" if "CommandLine" in args else "read_file", args, output)
+    payload = json.dumps({"hook_event_name": "Stop", "cwd": str(tmp_path), "last_assistant_message": message,
+                          "transcriptPath": tp}, ensure_ascii=False)
+    out = json.loads(run_node_script("stop_claim_guard.mjs", stdin_payload=payload).stdout)
+    assert ("SELF-CHECK" in out.get("reason", "")) is checked, out
+
+
+def test_lookup_guard_read_file_not_found(tmp_path):
+    tp = _one_call_transcript(tmp_path, "q", "read_file", {"AbsolutePath": "C:\\temp\\x.py"}, "Error: file does not exist: C:\\temp\\x.py")
+    payload = json.dumps({"conversationId": "rf", "toolCall": {"name": "read_file", "args": {"AbsolutePath": "C:\\temp\\x.py"}},
+                          "stepIdx": 1, "cwd": str(tmp_path), "transcriptPath": tp})
+    assert "[LOOKUP GUARD] WARN" in run_node_script("lookup_guard.mjs", stdin_payload=payload).stderr
+
+
 def test_lookup_guard_warns_on_failed_lookup(tmp_path):
     steps = [{"type": "USER_INPUT", "content": "q"},
              {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": "run_command", "args": {"CommandLine": "ls /x/browsers"}}]},

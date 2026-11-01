@@ -424,7 +424,7 @@ function isAgentInternalFile(targetFile) {
 function shouldGuard(targetFile, rawTexts) {
 	if (isPluginInternalDoc(targetFile) || isAgentInternalFile(targetFile)) return false;
 	// 원본 자료 폴더(evidence/증거/자료/원본/sources/첨부) 안의 비보고서 파일은 근거 원본이다. analysis/분석 폴더는 보고서를 두는 곳이라 제외하지 않는다.
-	const RAW_SOURCE_DIRS = ['evidence', '증거', '자료', '원본', 'sources', 'attachments', '첨부'];
+	const RAW_SOURCE_DIRS = ['evidence', '증거', '자료', '원본', 'sources', 'attachments', '첨부', 'case'];
 	if (RAW_SOURCE_DIRS.includes(path.basename(path.dirname(path.resolve(targetFile)))) && !EXPLICIT_REPORT_NAME_RE.test(path.basename(targetFile)) && !/보고서|초안|draft|report/i.test(path.basename(targetFile))) return false;
 	const keywordHit = GUARD_KEYWORD_RE.test(rawTexts.join('\n'));
 	const reportExt = /\.(md|html|txt)$/i.test(targetFile);
@@ -490,7 +490,8 @@ function evidenceCandidates(targetFile) {
 }
 
 // 원본 자료 자동 탐색: 보고서 옆 자료 폴더(카톡·녹취·OCR 텍스트, 첨부 파일, 분석 산출물). 인용·첨부 대조 근거다.
-const SOURCE_DIR_NAMES = ['evidence', '증거', '자료', '원본', 'sources', 'materials', 'attachments', '첨부', 'analysis', '분석'];
+// 'case': Windows QA(2026-11-02)에서 원본을 case\ 에 두었는데 자동 검증이 원본을 못 찾았다.
+const SOURCE_DIR_NAMES = ['evidence', '증거', '자료', '원본', 'sources', 'materials', 'attachments', '첨부', 'analysis', '분석', 'case'];
 function sourceCandidates(targetFile) {
 	const dir = path.dirname(path.resolve(targetFile));
 	return SOURCE_DIR_NAMES.map((n) => join(dir, n)).filter((p) => fs.existsSync(p) && fs.statSync(p).isDirectory());

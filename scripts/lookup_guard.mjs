@@ -12,7 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 const LOOKUP_CMD_RE = /(^|[\s;&|(])(grep|rg|ag|find|fd|ls|cat|head|tail|stat|test\s+-[edf]|which|command\s+-v|type|mdfind|locate|sqlite3|pip3?\s+show|python3?\s+-c\s+["']?\s*import|curl|wget|git\s+(show|log|grep|ls-files)|dir|Test-Path|Get-ChildItem|Get-Item|Get-Content|Select-String|Get-Command|Resolve-Path|gci|gc|sls|where(?:\.exe)?|findstr)\b/i;
-const LOOKUP_TOOL_RE = /^(view_file|view_file_outline|list_dir|grep_search|find_by_name|search_web|read_url_content|codebase_search|view_code_item)$/i;
+const LOOKUP_TOOL_RE = /^(read_file|ReadFile|Read|view_file|view_file_outline|list_dir|grep_search|find_by_name|search_web|read_url_content|codebase_search|view_code_item)$/i;
 const FAILED_RE = /No such file or directory|cannot (?:find|access|open)|not found|ModuleNotFoundError|No module named|ImportError|Permission denied|Operation not permitted|does not exist|could not be found|No results found|\b0 results\b|Found 0\b|no matches|exited with code [12]\b|exit (?:code|status) [12]\b|HTTP (?:403|404|410)|404 Not Found|ObjectNotFound|ItemNotFoundException|PathNotFound|CommandNotFoundException|경로를 찾을 수 없|찾을 수 없습니다|지정된 파일을 찾을 수 없|인식되지 않습니다/i;
 // PowerShell Test-Path 는 없는 경로에 오류 대신 exit 0 + 'False' 한 줄을 낸다(Windows 실측 보고, 2026-11-02).
 const TEST_PATH_FALSE_RE = /(?:^|\n)\s*False\s*(?:\r?\n|$)/;
