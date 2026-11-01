@@ -506,6 +506,16 @@ def main(argv=None):
                 Path(ep).read_text(encoding="utf-8", errors="replace")
                 for ep in args.evidence if Path(ep).is_file()
             )
+            # 원본 자료 텍스트도 근거로 본다. audit.json 만 보면 원본에 있는 화자 이름까지 '증거에 없는 용어'로
+            # 경고했다(실세션 2026-11-01: '김민수', '금액').
+            src_texts = []
+            for sd in (getattr(args, "sources", None) or []):
+                sp = Path(sd)
+                files = [sp] if sp.is_file() else sorted(sp.rglob("*")) if sp.is_dir() else []
+                for fp in files[:200]:
+                    if fp.is_file() and fp.suffix.lower() in {".txt", ".md", ".csv", ".json", ".log"} and fp.stat().st_size < 5_000_000:
+                        src_texts.append(fp.read_text(encoding="utf-8", errors="replace"))
+            combined_ev = "\n".join([combined_ev, *src_texts])
             if combined_ev.strip():
                 finding_section_match = re.search(
                     r"(?:^|\n)\s*(?:#{1,4}\s*|\d+[\.\)]\s*|제\s*\d+\s*조?\s*|\b|【|\[)?\s*(?:\d+[\.\)]\s*)?"

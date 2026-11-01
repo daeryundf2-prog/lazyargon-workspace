@@ -67,6 +67,10 @@ RECIPIENT_RE = re.compile(r"\s*(?:이?라는|이?라고\s*(?:적힌|된))?\s*(?:
 NEGATION_AFTER_RE = re.compile(r"\s*(?:아니|않|안\s|못|말고|없)")
 ELISION_RE = re.compile(r"\(중략\)|\(후략\)|…|\.\.\.")
 KAKAO_PC_RE = re.compile(r"^\s*\[([^\]]{1,20})\]\s*\[(?:오전|오후)?\s*\d{1,2}:\d{2}(?::\d{2})?\]\s*(.+)$")
+KAKAO_PC_DATE_RE = re.compile(r"^-{3,}\s*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일")
+KAKAO_PC_TIME_RE = re.compile(r"^\s*\[[^\]]{1,20}\]\s*\[(오전|오후)?\s*(\d{1,2}):(\d{2})")
+REPORT_DATE_CELL_RE = re.compile(r"^(\d{4})[-.](\d{1,2})[-.](\d{1,2})\.?$")
+REPORT_TIME_CELL_RE = re.compile(r"^(\d{1,2}):(\d{2})(?::\d{2})?$")
 META_TIME_RE = re.compile(r"(?:수집|분석|작성|출력|보고|추출|검토|발행|접수|회신)\s*(?:일시|시각|일자|날짜)")
 EXAMINER_DUR_RE = re.compile(r"소요|걸렸|걸린|작업\s*시간|분석\s*시간")
 MONEY_COMPOUND_RE = re.compile(r"(?<![\d.,])(\d+)\s?억\s?(?:(\d+)\s?(천만|백만|만)\s?)?원")
@@ -170,11 +174,24 @@ def speaker_index(texts: dict[str, str]) -> list[tuple[str, str, frozenset[str]]
     """(화자, 정규화 발언, 그 줄의 분 단위 시각) 목록."""
     rows = []
     for t in texts.values():
+        day = ""  # 카카오톡 PC 내보내기는 날짜를 구분선 줄에만 적고, 발언 줄에는 '[오후 3:33]'만 둔다.
         for line in t.splitlines():
+            dm = KAKAO_PC_DATE_RE.match(line)
+            if dm:
+                day = f"{int(dm.group(1)):04d}-{int(dm.group(2)):02d}-{int(dm.group(3)):02d}"
+                continue
             m = KAKAO_PC_RE.match(line) or SPEAKER_LINE_RE.search(line)
             if m:
-                times = frozenset({ts[:16] for ts in extract_timestamps(line) if " " in ts} | dot_times(line))
-                rows.append((m.group(1).strip(), norm(m.group(2)), times))
+                times = {ts[:16] for ts in extract_timestamps(line) if " " in ts} | dot_times(line)
+                tm = KAKAO_PC_TIME_RE.match(line)
+                if tm and day:
+                    hour = int(tm.group(2))
+                    if tm.group(1) == "오후" and hour < 12:
+                        hour += 12
+                    elif tm.group(1) == "오전" and hour == 12:
+                        hour = 0
+                    times.add(f"{day} {hour:02d}:{tm.group(3)}")
+                rows.append((m.group(1).strip(), norm(m.group(2)), frozenset(times)))
     return rows
 
 
@@ -273,6 +290,14 @@ def _hedged(line: str, start: int, end: int) -> bool:
 def _report_times(line: str) -> tuple[set[str], set[str]]:
     """(연도 포함 'YYYY-MM-DD HH:MM', 연도 없는 'MM-DD HH:MM')."""
     full = {ts[:16] for ts in extract_timestamps(line) if " " in ts} | dot_times(line)
+    # 표에서 날짜와 시각이 다른 칸에 있는 행('| 2026-10-03 | 15:33 | 김민수 | … |')도 한 시각으로 본다.
+    if line.lstrip().startswith("|"):
+        cells = [c.strip().strip("`*") for c in line.strip().strip("|").split("|")]
+        dates = [m for m in (REPORT_DATE_CELL_RE.match(c) for c in cells) if m]
+        hhmm = [m for m in (REPORT_TIME_CELL_RE.match(c) for c in cells) if m]
+        if len(dates) == 1 and len(hhmm) == 1:
+            y, mo, d = (int(x) for x in dates[0].groups())
+            full.add(f"{y:04d}-{mo:02d}-{d:02d} {int(hhmm[0].group(1)):02d}:{hhmm[0].group(2)}")
     yearless = set()
     for m in YEARLESS_RE.finditer(line):
         if re.search(r"\d{4}\s*년\s*$", line[: m.start()]):
@@ -405,6 +430,7 @@ def check(report_text: str, source_paths: list[str], timeline_text: str = "") ->
     speakers_by_len = sorted(known_speakers, key=len, reverse=True)
     all_text = "\n".join(texts.values()) + "\n" + timeline_text
     source_times = {ts[:16] for ts in extract_timestamps(all_text) if " " in ts} | dot_times(all_text)
+    source_times |= {t for _, _, ts in speakers for t in ts}  # 카카오톡 PC 내보내기처럼 날짜가 구분선에만 있는 발언 시각
     source_yearless = {ts[5:16] for ts in source_times}
     basenames = {unicodedata.normalize("NFC", f.name).lower() for f in files}
     coverage = coverage_sources(texts)
@@ -419,8 +445,10 @@ def check(report_text: str, source_paths: list[str], timeline_text: str = "") ->
         if stripped.startswith("|") and idx + 1 < len(lines) and re.match(r"^\|?\s*:?-{3,}", lines[idx + 1].strip()):
             heads = [c.strip() for c in stripped.strip("|").split("|")]
             sc = next((k for k, h in enumerate(heads) if TABLE_SPEAKER_COL.search(h)), None)
-            tc = next((k for k, h in enumerate(heads) if TABLE_TEXT_COL.search(h) and not TABLE_NOT_TEXT_COL.search(h)), None)
+            tc = next((k for k, h in enumerate(heads) if TABLE_TEXT_COL.search(h) and not TABLE_NOT_TEXT_COL.search(h) and k != sc), None)
             table = {"speaker": sc, "text": tc} if sc is not None and tc is not None else {}
+            continue
+        if stripped.startswith("|") and re.match(r"^\|?\s*:?-{3,}", stripped):
             continue
         if not stripped.startswith("|"):
             table = {}

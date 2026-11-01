@@ -71,6 +71,41 @@ def test_grounded_report_passes(case: Path):
     assert res["verdict"] == "PASS", res["errors"]
 
 
+def _kakao_pc_case(tmp_path: Path) -> Path:
+    ev = tmp_path / "evidence"
+    ev.mkdir()
+    (ev / "KakaoTalk_chat.txt").write_text(
+        "김민수, 박준호 님과 카카오톡 대화\n"
+        "--------------- 2026년 10월 3일 금요일 ---------------\n"
+        "[김민수] [오전 9:07] 내일까지 300만원 보내줘\n"
+        "[김민수] [오후 3:33] 내일까지 300만원 보내줘\n"
+        "--------------- 2026년 10월 4일 토요일 ---------------\n"
+        "[박준호] [오전 12:03] 내가 50만원 빌려줄 수 있어\n",
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+@pytest.mark.parametrize(
+    "row,needle",
+    [
+        ("| 2026-10-03 | 15:33 | 김민수 | 내일까지 300만원 보내줘 |", None),
+        ("| 2026-10-04 | 00:03 | 박준호 | 내가 50만원 빌려줄 수 있어 |", None),
+        ("| 2026-10-03 | 13:33 | 김민수 | 내일까지 300만원 보내줘 |", "시각-발언 불일치"),
+        ("| 2026-10-04 | 12:03 | 박준호 | 내가 50만원 빌려줄 수 있어 |", "시각-발언 불일치"),
+    ],
+)
+def test_kakao_pc_table_rows_check_time_per_quote(tmp_path: Path, row: str, needle: str | None):
+    """카카오톡 PC 내보내기('[이름] [오후 3:33]', 날짜는 구분선)와 날짜·시각이 다른 칸인 표(실세션 2026-11-01)."""
+    case = _kakao_pc_case(tmp_path)
+    body = f"# 보고서\n\n| 날짜 | 시각 | 발언자 | 원문 |\n|---|---|---|---|\n{row}\n"
+    res = run(write(case, body), str(case / "evidence"))
+    if needle is None:
+        assert not res["errors"], res["errors"]
+    else:
+        assert any(needle in e for e in res["errors"]), res["errors"]
+
+
 @pytest.mark.parametrize(
     "body,needle",
     [

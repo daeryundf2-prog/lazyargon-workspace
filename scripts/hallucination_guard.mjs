@@ -12,7 +12,9 @@
  *
  * stdin 규약: 1.5초 데드라인 비동기 읽기 (Linux/Windows 파이프 호환 — fstat.size 미사용).
  */
+import crypto from 'node:crypto';
 import fs from 'fs';
+import os from 'node:os';
 import path from 'path';
 import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'node:url';
@@ -561,6 +563,19 @@ async function main() {
 		process.stdout.write('{}\n');
 		process.exit(0); // 가드 대상 없음 — 오탐 방지
 	}
+	// 메신저 내보내기 원본(카카오톡 PC/모바일)은 보고서가 아니라 증거다. 실세션(2026-11-01): 원본 대화 파일을
+	// 보고서로 검사해 '김민수·금요일'을 증거에 없는 용어라고 경고했다.
+	if (/\.txt$/i.test(targetFile)) {
+		try {
+			const head = fs.readFileSync(targetFile, 'utf8').slice(0, 2000);
+			if (/님과 카카오톡 대화|^\s*\[[^\]\n]{1,20}\]\s*\[(?:오전|오후)\s*\d{1,2}:\d{2}\]/m.test(head)) {
+				process.stdout.write('{}\n');
+				process.exit(0);
+			}
+		} catch {
+			// 읽지 못하면 기존 판정을 따른다
+		}
+	}
 	if (!shouldGuard(targetFile, rawTexts)) {
 		process.stdout.write('{}\n');
 		process.exit(0);
@@ -583,8 +598,18 @@ async function main() {
 		args.push('--timeline', timeline);
 	} else {
 		// timeline 근거 파일을 못 찾으면 과거 시각 grounding이 스킵된다.
-		// 조용한 사각지대 대신 사용자에게 노출해 수동 제공을 유도한다.
-		console.error(`[HALLUCINATION GUARD] timeline 근거 파일 미발견 — 타임라인 grounding 생략. timeline.json이 있다면 보고서와 같은 디렉터리에 두십시오: ${path.dirname(path.resolve(targetFile))}`);
+		// 조용한 사각지대 대신 사용자에게 노출해 수동 제공을 유도한다. 단, 대화·보고서마다 한 번만 알린다
+		// (실세션 2026-11-01: 같은 안내가 저장할 때마다 9번 반복돼 에이전트가 가드 코드를 뒤졌다).
+		const noteKey = crypto.createHash('sha1').update(`${sources.find((s) => s.parsed && s.parsed.conversationId)?.parsed.conversationId || ''}|${path.resolve(targetFile)}`).digest('hex').slice(0, 16);
+		const noteMark = path.join(os.tmpdir(), `lazyargon-timeline-note-${noteKey}`);
+		if (!fs.existsSync(noteMark)) {
+			try {
+				fs.writeFileSync(noteMark, '');
+			} catch {
+				// 표시 기록 실패는 안내 자체를 막지 않는다
+			}
+			console.error(`[HALLUCINATION GUARD] timeline 근거 파일 미발견 — 타임라인 grounding 생략. timeline.json이 있다면 보고서와 같은 디렉터리에 두십시오: ${path.dirname(path.resolve(targetFile))}`);
+		}
 	}
 	if (ledger) {
 		args.push('--claim-ledger', ledger);
