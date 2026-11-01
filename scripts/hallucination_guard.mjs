@@ -378,13 +378,13 @@ function isPluginInternalDoc(targetFile) {
 		const rootAbs = path.resolve(root);
 		if (!abs.startsWith(rootAbs + path.sep)) return false;
 		const rel = path.relative(rootAbs, abs).replace(/\\/g, '/');
-		return /^(GEMINI\.md|README\.md|CLAUDE\.md|CHARTER\.md|NOTICE|rules\/|docs\/|skills\/|agents\/|templates\/|contracts\/)/.test(rel);
+		return /^(AGENTS\.md|GEMINI\.md|README\.md|CLAUDE\.md|CHARTER\.md|NOTICE|rules\/|docs\/|skills\/|agents\/|templates\/|contracts\/)/.test(rel);
 	} catch {
 		return false;
 	}
 }
 
-const AGENT_INTERNAL_FILE_RE = /^(pins\.md|ulw-scope\.md|scope\.md|brief\.md|claim-graph\.md|sources-ledger\.md|expansion-log\.md|intent-diff\.md|observation-manifest\.md|debate-log\.md|verification-economics\.md|cause-disappearance\.md|excursion-log\.md|design-spec\.md|outcome\.json|audit\.json|audit_trail\.jsonl|processing_receipt\.json)$/i;
+const AGENT_INTERNAL_FILE_RE = /^(AGENTS\.md|CLAUDE\.md|GEMINI\.md|CHANNELS\.md|pins\.md|ulw-scope\.md|scope\.md|brief\.md|claim-graph\.md|sources-ledger\.md|expansion-log\.md|intent-diff\.md|observation-manifest\.md|debate-log\.md|verification-economics\.md|cause-disappearance\.md|excursion-log\.md|design-spec\.md|outcome\.json|audit\.json|audit_trail\.jsonl|processing_receipt\.json)$/i;
 
 function isAgentInternalFile(targetFile) {
 	if (!targetFile) return false;
