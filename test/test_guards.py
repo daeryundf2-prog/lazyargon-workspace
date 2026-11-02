@@ -136,6 +136,17 @@ class EvidenceGuardTests(unittest.TestCase):
         self.assertEqual(code("python scripts\\parse_ntfs_artifacts.py C:\\case\\Security.evtx -a eventlogs -o C:\\case\\copy.evtx"), 1)
         self.assertEqual(code("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\nRemove-Item C:\\case\\Security.evtx"), 1)
 
+    def test_windows_evtx_reads_with_discard_pipe_are_allowed(self):
+        # Windows QA 2026-11-02: 읽기만 하는 두 명령이 쓰기로 차단됐다
+        def code(cmd):
+            payload = json.dumps({"toolCall": {"name": "run_command", "args": {"CommandLine": cmd}}})
+            return run_guard("evidence_guard.mjs", ["pre-tool-use"], stdin_payload=payload).returncode
+        self.assertEqual(code('python scripts\\parse_ntfs_artifacts.py "C:\\q\\App.evtx" -a eventlogs -o "C:\\q\\o.json" | Out-Null'), 0)
+        self.assertEqual(code('(Get-WinEvent -Path "C:\\q\\App.evtx" -Oldest).Count'), 0)
+        self.assertEqual(code('Get-Content "C:\\q\\App.evtx" | Out-File "C:\\q\\copy.txt"'), 1)
+        self.assertEqual(code('Get-ChildItem "C:\\q\\App.evtx" | Remove-Item'), 1)
+        self.assertEqual(code('wevtutil epl Application "C:\\q\\App.evtx" /ow:true'), 1)
+
     def test_heredoc_body_mentioning_evidence_files_is_not_a_write_target(self):
         body = "cat << 'EOF' > /tmp/x/draft.py\nrows = ['Logs/Security.evtx', 'memory.raw']\nEOF"
         ok = json.dumps({"toolCall": {"name": "run_command", "args": {"CommandLine": body}}})

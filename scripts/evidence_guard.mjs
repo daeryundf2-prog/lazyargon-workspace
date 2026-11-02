@@ -395,7 +395,10 @@ function pathTokens(texts) {
 // 판단이 불가능한 형태(멀티라인, python -c 인라인 코드, 쓰기 신호 포함)는
 // 전부 차단으로 간다 — best-effort 가드의 실패폐쇄 방향.
 // ---------------------------------------------------------------------------
-const READ_ONLY_VERBS = /^(sha256sum|md5sum|sha1sum|shasum|sha256deep|cat|ls|dir|file|stat|head|tail|wc|strings|exiftool|fls|ils|icat|img_stat|fsstat|jpeg_extract|python3?|py|node)\b/i;
+const READ_ONLY_VERBS = /^(sha256sum|md5sum|sha1sum|shasum|sha256deep|cat|ls|dir|file|stat|head|tail|wc|strings|exiftool|fls|ils|icat|img_stat|fsstat|jpeg_extract|python3?|py|node|Get-WinEvent|Get-FileHash|Get-Item|Get-ChildItem|Get-Content|Get-ItemProperty|Test-Path|Select-String)\b/i;
+// 출력을 버리거나 추리기만 하는 끝 파이프(| Out-Null 등)는 쓰기가 아니다. Windows QA(2026-11-02)에서
+// 'parse_ntfs_artifacts.py … | Out-Null' 과 '(Get-WinEvent -Path x.evtx).Count' 가 쓰기로 차단됐다.
+const DISCARD_PIPE_TAIL_RE = /(?:\s*\|\s*(?:Out-Null|Out-String|Measure-Object|Select-Object|Format-List|Format-Table)\b[^|;&>`]*)+$/i;
 const WRITE_SIGNS_RE = /(>|>>|\btee\b|\bdd\b|\bcp\b|\bmv\b|\brm\b|\bshred\b|\btruncate\b|\bchmod\b|\bchown\b|\bchattr\b|\bmkfs\b|\bsponge\b|\binstall\b|\btouch\b|\bmktemp\b|\bsed\b[^\n]*\s-i\b|\bRemove-Item\b|\bSet-Content\b|\bAdd-Content\b|\bOut-File\b|\bCopy-Item\b|\bMove-Item\b|\bClear-Content\b|\bdel\b|\berase\b|(?:\s|^)(?:-e|--eval)\b|(?<![-\w])-\w+=)/i;
 const READONLY_INTERPRETER_SCRIPTS_RE = /(?:^|[\/\\'"\s])(verify_report\.py|forensic_audit\.py|audit_timestamps\.py|coverage_audit\.mjs|verify_legal_factuality\.py|check_tool\.py|parse_ntfs_artifacts\.py)(?:['"\s]|$)/i;
 // Windows 에이전트가 명령 앞에 붙이는 출력 인코딩 설정(줄 또는 ';' 로 구분)은 쓰기가 아니므로 걷어 낸다.
@@ -407,14 +410,14 @@ function isReadOnlyInspection(text) {
 	const segs = String(text).split(/\r?\n|;/).map((s) => s.trim()).filter(Boolean);
 	const rest = segs.filter((s) => !ENCODING_PREAMBLE_RE.test(s));
 	if (rest.length !== 1) return false;
-	const t = rest[0];
+	const t = rest[0].replace(DISCARD_PIPE_TAIL_RE, '');
 	for (const m of t.matchAll(OUTPUT_ARG_RE)) {
 		const out = m[1].replace(/^['"]|['"]$/g, '');
 		if (PROTECTED_EXTENSIONS.test(out) || EVIDENCE_SEGMENT_RE.test(out)) return false;
 	}
 	if (!t || t.includes('\n')) return false;              // 멀티라인 스크립트는 판단 불가
 	if (/[;&|`]|(\$\()/.test(t)) return false;             // 셸 명령 체이닝/치환 차단
-	const firstToken = t.split(/[\s"'`]+/)[0] || '';
+	const firstToken = (t.split(/[\s"'`]+/)[0] || '').replace(/^\(+/, '');
 	if (!READ_ONLY_VERBS.test(firstToken)) return false;
 	if (WRITE_SIGNS_RE.test(t)) return false;
 	// 인터프리터 인라인 코드(-c/-m/-e/--eval) 및 비화이트리스트 스크립트는 쓰기를 숨길 수 있어 차단 유지
