@@ -173,7 +173,7 @@ def test_stop_claim_guard_checks_cited_evidence_in_self_check_reply(tmp_path, me
     ("wc -l /p/logs/auth.log", "로그인 기록은 3건입니다.", True),
 ])
 def test_stop_claim_guard_wc_l_entries_vs_lines(tmp_path, command, message, checked):
-    (tmp_path / "evidence").mkdir()  # 숫자 되묻기는 증거 작업 턴에서만 한다
+    # 증거 폴더 없이도 .log 를 다룬 턴은 증거 작업으로 본다(적대적 리뷰 2026-11-03)
     steps = [{"type": "USER_INPUT", "content": "q"},
              {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": "run_command", "args": {"CommandLine": command}}]},
              {"type": "GENERIC", "content": "Command output:\n       3"}]
@@ -269,7 +269,50 @@ def test_lookup_guard_content_reads(tmp_path, name, args, step, warned):
     tp.write_text("\n".join(json.dumps(s, ensure_ascii=False) for s in steps), encoding="utf-8")
     payload = json.dumps({"conversationId": "cr", "cwd": str(tmp_path), "transcriptPath": str(tp)})
     proc = run_node_script("lookup_guard.mjs", stdin_payload=payload)
+    assert proc.returncode == 0 and proc.stdout.strip() == "{}", proc  # 충돌을 '경고 없음'으로 읽지 않는다
     assert ("[LOOKUP GUARD] WARN" in proc.stderr) is warned, proc.stderr
+
+
+def test_lookup_guard_reads_the_final_output_of_a_split_step(tmp_path):
+    # 실행 중 스냅샷 + 완료 출력으로 나뉜 단계의 마지막 출력도 본다(실제 기록 15건, 적대적 리뷰 2026-11-03)
+    steps = [{"type": "USER_INPUT", "content": "q"},
+             {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": "run_command", "args": {"CommandLine": "ls /x/gone"}}]},
+             {"type": "GENERIC", "step_index": 2, "content": "Command is still running"},
+             {"type": "GENERIC", "step_index": 3, "content": "ls: /x/gone: No such file or directory"}]
+    tp = tmp_path / "transcript_full.jsonl"
+    tp.write_text("\n".join(json.dumps(s) for s in steps), encoding="utf-8")
+    proc = run_node_script("lookup_guard.mjs", stdin_payload=json.dumps({"conversationId": "sp", "cwd": str(tmp_path), "transcriptPath": str(tp)}))
+    assert "ls /x/gone" in proc.stderr, proc.stderr
+
+
+@pytest.mark.parametrize("user,prior,message", [
+    # 앞 턴 열람의 줄 번호는 수치 근거가 아니다(적대적 리뷰 2026-11-03)
+    ("보고서 써줘", "Showing lines 130-140 of 300\n137: foo", "삭제된 이벤트는 총 137건입니다."),
+    # 해시 안의 숫자도 근거가 아니다
+    ("보고서 써줘", "sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08", "삭제된 이벤트는 총 884건입니다."),
+])
+def test_stop_claim_guard_prior_turn_line_numbers_and_hashes_are_not_sources(tmp_path, user, prior, message):
+    steps = [{"type": "USER_INPUT", "content": "열어봐"},
+             {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": "view_file", "args": {"AbsolutePath": "/p/a.txt"}}]},
+             {"type": "GENERIC", "content": prior},
+             {"type": "USER_INPUT", "content": user}]
+    tp = tmp_path / "transcript_full.jsonl"
+    tp.write_text("\n".join(json.dumps(s, ensure_ascii=False) for s in steps), encoding="utf-8")
+    payload = json.dumps({"hook_event_name": "Stop", "cwd": str(tmp_path), "transcriptPath": str(tp),
+                          "last_assistant_message": message}, ensure_ascii=False)
+    out = json.loads(run_node_script("stop_claim_guard.mjs", stdin_payload=payload).stdout)
+    assert "SELF-CHECK" in out.get("reason", ""), out
+
+
+def test_stop_claim_guard_path_does_not_excuse_widened_absence(tmp_path):
+    # 경로를 대고 '기능을 지원하지 않는다'로 넓힌 문장은 범위 서술이 아니다(적대적 리뷰 2026-11-03)
+    tp = _one_call_transcript(tmp_path, "엑셀 내보내기 되나?", "read_file", {"Path": "C:\\temp\\lazyqa\\export_xlsx.py"},
+                              "Created At: x\nCompleted At: x\nEncountered error in step execution: file does not exist")
+    message = "`C:\\temp\\lazyqa\\export_xlsx.py` 가 없으므로 엑셀 내보내기 기능을 지원하지 않습니다."
+    payload = json.dumps({"hook_event_name": "Stop", "cwd": str(tmp_path), "last_assistant_message": message,
+                          "transcriptPath": tp}, ensure_ascii=False)
+    out = json.loads(run_node_script("stop_claim_guard.mjs", stdin_payload=payload).stdout)
+    assert "SELF-CHECK" in out.get("reason", ""), out
 
 
 @pytest.mark.parametrize("prior,checked", [
@@ -310,7 +353,9 @@ def test_stop_claim_guard_numeric_self_check_only_on_report_turns(tmp_path, user
     tp.write_text("\n".join(json.dumps(s, ensure_ascii=False) for s in steps), encoding="utf-8")
     payload = json.dumps({"hook_event_name": "Stop", "cwd": str(tmp_path), "last_assistant_message": message,
                           "transcriptPath": str(tp)}, ensure_ascii=False)
-    out = json.loads(run_node_script("stop_claim_guard.mjs", stdin_payload=payload).stdout)
+    proc = run_node_script("stop_claim_guard.mjs", stdin_payload=payload)
+    assert "internal error" not in proc.stderr, proc.stderr  # 충돌을 '되묻지 않음'으로 읽지 않는다
+    out = json.loads(proc.stdout)
     assert ("SELF-CHECK" in out.get("reason", "")) is checked, out
     log = tmp_path / ".lazyargon" / "stop-guard.jsonl"
     modes = [json.loads(line)["mode"] for line in log.read_text(encoding="utf-8").splitlines()] if log.exists() else []
@@ -331,7 +376,9 @@ def test_stop_claim_guard_scoped_absence_in_inline_code_is_not_rechecked(tmp_pat
                               {"Path": "C:\\temp\\lazyqa\\registry_parser.py"}, _RF_FAIL)
     payload = json.dumps({"hook_event_name": "Stop", "cwd": str(tmp_path), "last_assistant_message": message,
                           "transcriptPath": tp}, ensure_ascii=False)
-    out = json.loads(run_node_script("stop_claim_guard.mjs", stdin_payload=payload).stdout)
+    proc = run_node_script("stop_claim_guard.mjs", stdin_payload=payload)
+    assert "internal error" not in proc.stderr, proc.stderr  # 충돌을 '되묻지 않음'으로 읽지 않는다
+    out = json.loads(proc.stdout)
     assert "SELF-CHECK" not in out.get("reason", ""), out
 
 

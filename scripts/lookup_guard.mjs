@@ -29,7 +29,7 @@ const READ_CMD_RE = /^\s*(?:\[Console\]::OutputEncoding\s*=[^;\n]*[;\n]\s*)?(?:c
 // 스크립트는 종료 코드만으로 조회 실패로 보지 않고, 출력에 남은 실패 문구(No module named · No such file 등)로만 본다.
 const SCRIPT_RUN_RE = /^\s*(?:\$env:[^;\n]+;\s*)*(?:python3?|py|node)(?:\.exe)?\s/i;
 const EXIT_CODE_RE = /exited with code \d+|exit (?:code|status) \d+/gi;
-const READ_FAIL_RE = /^(?:cat|head|tail|type|more|Get-Content|gc)\s*:.*|ItemNotFoundException|PathNotFound|ObjectNotFound|cannot find the (?:file|path) specified|지정된 (?:파일|경로)를 찾을 수 없|exited with code [12]\b/im;
+const READ_FAIL_RE = /^(?:cat|head|tail|type|more|Get-Content|gc)\s*:.*|ItemNotFoundException|PathNotFound|ObjectNotFound|cannot find the (?:file|path) specified|지정된 (?:파일을|경로를) 찾을 수 없|exited with code [12]\b/im;
 
 function readStdin() {
 	try {
@@ -69,18 +69,22 @@ function failedSteps(p) {
 		const out = [];
 		// 한 응답에 도구를 여러 개 부르면 출력 단계도 그 순서대로 나온다. k 번째 출력은 k 번째 호출의 것이다
 		// (이전에는 전부 첫 호출에 붙여 read_file 뒤 run_command 출력을 read_file 실패로 읽었다).
+		// 호출보다 출력 단계가 많으면(실행 중 스냅샷 + 완료 출력) 남는 출력은 마지막 호출의 것이다(실제 기록 15건, 적대적 리뷰 2026-11-03).
 		let pending = [];
+		let lastCall = null;
 		for (const s of steps.slice(start)) {
 			if (s.type === 'PLANNER_RESPONSE' && Array.isArray(s.tool_calls) && s.tool_calls.length) pending = [...s.tool_calls];
-			if (s.type !== 'GENERIC' || !pending.length) continue;
-			const lastCall = pending.shift();
+			if (s.type !== 'GENERIC') continue;
+			if (pending.length) lastCall = pending.shift();
+			if (!lastCall) continue;
 			const name = String(lastCall.name || '');
 			const cmd = String(lastCall.args?.CommandLine || lastCall.args?.command || '');
 			if (!(LOOKUP_TOOL_RE.test(name) || (/run_command|bash|shell/i.test(name) && LOOKUP_CMD_RE.test(cmd)))) continue;
 			const body = String(s.content || '');
 			const errText = `${s.error || ''}\n${body}`;
 			let m;
-			if (CONTENT_TOOL_RE.test(name)) m = s.status === 'ERROR' || TOOL_ERROR_RE.test(body.slice(0, 300)) ? errText.match(FAILED_RE) || ['tool error'] : null;
+			// 단계 status 가 있으면 그것만 믿는다: 본문 첫머리에 'Encountered error …' 를 담은 파일(대화 기록 등)을 열어도 성공이다.
+			if (CONTENT_TOOL_RE.test(name)) m = (s.status ? s.status === 'ERROR' : TOOL_ERROR_RE.test(body.slice(0, 300))) ? errText.match(FAILED_RE) || ['tool error'] : null;
 			else if (READ_CMD_RE.test(cmd)) m = body.match(READ_FAIL_RE);
 			else if (SCRIPT_RUN_RE.test(cmd)) m = body.replace(EXIT_CODE_RE, '').match(FAILED_RE);
 			else m = body.match(FAILED_RE) || (/Test-Path/i.test(cmd) && TEST_PATH_FALSE_RE.test(body) ? ['Test-Path False'] : null);

@@ -228,7 +228,13 @@ function turnEvidence(content) {
 		user: String(turn[0]?.type === 'USER_INPUT' ? turn[0].content || '' : ''),
 		// 이전 턴의 도구 출력·사용자 메시지(모델 답변은 제외). '지금까지 한 것을 정리해줘' 같은 턴은 앞 턴에서 얻은
 		// 수치를 옮긴다. 실제 transcript 1052턴 리플레이(2026-11-02): 이번 턴만 보면 59% 턴이 되물음, 이전 턴 출력까지 보면 44%.
-		history: steps.slice(0, start).filter((s) => s.type === 'GENERIC' || s.type === 'USER_INPUT').map((s) => String(s.content || '')).join('\n').replace(/(?<=\d),(?=\d{3})/g, ''),
+		// 줄 번호('137: …')·열람 머리글·시각·긴 16진수(해시)는 근거 수치가 아니다(적대적 리뷰 2026-11-03: 줄 번호 137 이
+		// '총 137건'의 근거로 잡혔다).
+		history: steps.slice(0, start).filter((s) => s.type === 'GENERIC' || s.type === 'USER_INPUT').map((s) => String(s.content || '')).join('\n')
+			.replace(/^(?:Created At|Completed At|Showing lines|Partial read|Total Lines|File Path)\b[^\n]*$/gim, ' ')
+			.replace(/^\s*\d+:\s/gm, '')
+			.replace(/\b[0-9a-f]{8,}\b/gi, ' ')
+			.replace(/(?<=\d),(?=\d{3})/g, ''),
 	};
 }
 
@@ -285,7 +291,8 @@ function riskySentences(message, ev = null) {
 		let hit = RISKY_CLAIMS.find((c) => {
 			const m = line.match(c.re);
 			if (!m) return false;
-			if (c.kind === '부재·불가 단정') return weak && !scoped && !POLICY_RE.test(line);
+			// 경로를 대도 기능·지원으로 넓힌 부재 단정은 범위 서술이 아니다(적대적 리뷰 2026-11-03).
+			if (c.kind === '부재·불가 단정') return weak && !(scoped && !BROAD_ABSENCE_RE.test(line)) && !POLICY_RE.test(line);
 			if (c.kind === '전체·전부 단정') return !allOk();
 			if (c.kind === '실행 환경 단정') return !(HOST_ENV_RE && HOST_ENV_RE.test(m[0]) && ev && ev.calls > 0);
 			return true;
@@ -302,7 +309,7 @@ function riskySentences(message, ev = null) {
 				const digits = m[1].replace(/,/g, '');
 				if (Number(digits) < 2) continue;
 				const re = new RegExp(`(?<![\\d.])${digits.replace('.', '\\.')}(?![\\d])`);
-				if (!re.test(ev.outputs) && !re.test(ev.user) && !re.test(ev.history)) {
+				if (!re.test(ev.outputs) && !re.test(ev.user) && !new RegExp(`(?<![\\w.])${digits.replace('.', '\\.')}(?![\\d.])`).test(ev.history)) {
 					hit = { kind: `출처 없는 수치(${m[0]})` };
 					break;
 				}
@@ -346,13 +353,19 @@ const REPORT_FILE_RE = /\.(?:md|docx?|hwpx?|html?|pdf)\b/i;
 const EVIDENCE_DIR_NAMES = ['case', 'evidence', '증거', '자료', '원본', 'sources', 'attachments', '첨부'];
 const EVIDENCE_PATH_RE = new RegExp(`[\\\\/](?:${EVIDENCE_DIR_NAMES.join('|')})[\\\\/]`, 'i');
 // 리플레이 표본(2026-11-02)에서 데이터 정리 턴('방별로 수신자·발신자 엑셀 정리', '타임라인')이 빠져 있어 함께 둔다.
-const FORENSIC_ASK_RE = /보고서|감정서|의견서|포렌식|증거|감정|진술|고소|소장|판결|사건|대화 내보내기|카카오톡|카톡|타임라인|엑셀|명단|집계|건수|수집|추출|발신|수신|report|forensic|evidence|timeline/i;
+const FORENSIC_ASK_RE = /보고서|감정서|의견서|포렌식|증거|감정|진술|고소|소장|판결|사건|대화 내보내기|카카오톡|카톡|타임라인|엑셀|명단|집계|건수|몇\s*(?:건|개|명|회|번)|수집|추출|발신|수신|report|forensic|evidence|timeline/i;
+
+const DATA_FILE_RE = /\.(?:log|csv|tsv|xlsx?|db|sqlite3?|evtx|pcap|pcapng|plist|jsonl)\b/i;
+const BROAD_ABSENCE_RE = /(?:기능|지원|방법|권한|모듈|옵션|명령|엔드포인트|설정|API|함수|패키지|라이브러리|플러그인|도구)(?:이|은|는|가|도)?\s*(?:전혀\s*)?(?:없|존재하지\s*않)|(?:지원|제공)(?:하|되)지\s*않|불가능|할\s*수\s*없|\bdoes(?:n't|\s+not)\s+(?:support|have)\b|\bis\s+not\s+supported\b/i;
 
 function isReportTurn(ev, payload) {
 	if (!ev) return true; // 판단할 근거가 없으면 지금처럼 묻는다
 	if (FORENSIC_ASK_RE.test(ev.user)) return true;
 	const args = ev.args.replace(/\\\\/g, '\\');
 	if (EVIDENCE_PATH_RE.test(args)) return true;
+	// 로그·데이터 파일을 다룬 턴은 증거 작업이다. 2026-11-01 사례('wc -l auth.log' → '로그인 3건')가
+	// 기록만 되고 되묻지 않았다(적대적 리뷰 2026-11-03).
+	if (DATA_FILE_RE.test(args)) return true;
 	if (ev.names.some((n) => REPORT_WRITE_RE.test(n)) && REPORT_FILE_RE.test(args)) return true;
 	const ws = observeLogBase(payload);
 	return ws !== os.homedir() && EVIDENCE_DIR_NAMES.some((d) => fs.existsSync(path.join(ws, d)));
@@ -557,7 +570,8 @@ async function main() {
 	emitBlock(payload, reason);
 }
 
-main().catch(() => {
+main().catch((err) => {
+	process.stderr.write(`stop_claim_guard: internal error: ${err?.stack || err}\n`); // 조용한 통과와 충돌을 구별한다
 	process.stdout.write('{}\n');
 	process.exit(0); // 어떤 경우에도 세션을 가두지 않는다
 });
