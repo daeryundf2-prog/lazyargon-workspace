@@ -380,7 +380,8 @@ function scanStrings(sources) {
 function pathTokens(texts) {
 	const tokens = [];
 	for (const text of texts) {
-		for (const raw of String(text).split(/[\s"'`]+/)) {
+		// 괄호·중괄호·쉼표도 끊는다: '(Get-Item C:\x\a.evtx).Delete()' 의 경로가 ').Delete(' 에 붙어 빠졌다.
+		for (const raw of String(text).split(/[\s"'`(){}[\],]+/)) {
 			const token = raw.replace(/[,;:)\]]+$/, '');
 			if (token) tokens.push(token);
 		}
@@ -404,21 +405,36 @@ const DISCARD_PIPE_TAIL_RE = /(?:\s*\|\s*(?:Out-Null|Out-String|Measure-Object|S
 // '(Get-Item x.evtx).Delete()' 같은 메서드 호출은 쓰기다(적대적 리뷰 2026-11-03).
 const PAREN_READ_RE = /^\s*\([^()]*\)(?:\.\w+)*\s*$/;
 const WRITE_SIGNS_RE = /(>|>>|\btee\b|\bdd\b|\bcp\b|\bmv\b|\brm\b|\bshred\b|\btruncate\b|\bchmod\b|\bchown\b|\bchattr\b|\bmkfs\b|\bsponge\b|\binstall\b|\btouch\b|\bmktemp\b|\bsed\b[^\n]*\s-i\b|\bRemove-Item\b|\bSet-Content\b|\bAdd-Content\b|\bOut-File\b|\bCopy-Item\b|\bMove-Item\b|\bClear-Content\b|\bdel\b|\berase\b|(?:\s|^)(?:-e|--eval)\b|(?<![-\w])-\w+=)/i;
-const READONLY_INTERPRETER_SCRIPTS_RE = /(?:^|[\/\\'"\s])(verify_report\.py|forensic_audit\.py|audit_timestamps\.py|coverage_audit\.mjs|verify_legal_factuality\.py|check_tool\.py|parse_ntfs_artifacts\.py)(?:['"\s]|$)/i;
+// 화이트리스트 스크립트는 인터프리터가 실제로 실행하는 첫 인자여야 한다('python wipe.py x.evtx verify_report.py' 는 아니다).
+const READONLY_INTERPRETER_SCRIPTS_RE = /^(verify_report\.py|forensic_audit\.py|audit_timestamps\.py|coverage_audit\.mjs|verify_legal_factuality\.py|check_tool\.py|parse_ntfs_artifacts\.py)$/i;
+
+function interpreterScript(t) {
+	const toks = t.match(/"[^"]*"|'[^']*'|\S+/g) || [];
+	let i = 1;
+	while (i < toks.length && toks[i].startsWith('-')) i += /^-[XW]$/.test(toks[i]) ? 2 : 1;
+	return path.basename((toks[i] || '').replace(/^['"]|['"]$/g, ''));
+}
 // Windows 에이전트가 명령 앞에 붙이는 출력 인코딩 설정(줄 또는 ';' 로 구분)은 쓰기가 아니므로 걷어 낸다.
 const ENCODING_PREAMBLE_RE = /^\s*(?:\[Console\]::(?:Output|Input)Encoding\s*=\s*[\w.:\[\]()]+|\$OutputEncoding\s*=\s*[\w.:\[\]()]+|chcp(?:\.com)?\s+65001(?:\s*>\s*\$null)?|\$env:PYTHON(?:UTF8|IOENCODING)\s*=\s*['"]?[\w-]+['"]?)\s*$/i;
-// 출력 파일(-o/--output)이 증거 파일·증거 폴더면 읽기 전용이 아니다.
-const OUTPUT_ARG_RE = /\s(?:-o|--output)(?:\s+|=)("[^"]+"|'[^']+'|\S+)/gi;
+// 출력 파일(-o/--output)이 증거 파일·증거 폴더면 읽기 전용이 아니다. argparse 는 '--outp X', '-oX' 도 받는다
+// (적대적 리뷰 2026-11-03).
+const OUTPUT_ARG_RE = /\s(?:--o[\w-]*|-o)(?:\s+|=)?("[^"]+"|'[^']+'|[^\s"']+)/gi;
 
 function isReadOnlyInspection(text) {
 	const segs = String(text).split(/\r?\n|;/).map((s) => s.trim()).filter(Boolean);
 	const rest = segs.filter((s) => !ENCODING_PREAMBLE_RE.test(s));
 	if (rest.length !== 1) return false;
-	const t = rest[0].replace(DISCARD_PIPE_TAIL_RE, '');
-	if (/^\s*\(/.test(t) && !PAREN_READ_RE.test(t)) return false;
+	let t = rest[0].replace(DISCARD_PIPE_TAIL_RE, '');
+	if (/^\s*\(/.test(t)) {
+		if (!PAREN_READ_RE.test(t)) return false;
+		t = t.replace(/^\s*\(([^()]*)\)(?:\.\w+)*\s*$/, '$1');
+	}
+	// 인자 안의 하위 식·스크립트 블록·.NET 호출은 쓰기를 숨길 수 있다:
+	// 'Test-Path (ri x.evtx)', 'Get-ChildItem @(move …)', 'Test-Path ([IO.File]::WriteAllText(…))' (적대적 리뷰 2026-11-03).
+	if (/[(){}]|::/.test(t)) return false;
 	for (const m of t.matchAll(OUTPUT_ARG_RE)) {
 		const out = m[1].replace(/^['"]|['"]$/g, '');
-		if (PROTECTED_EXTENSIONS.test(out) || EVIDENCE_SEGMENT_RE.test(out)) return false;
+		if (isProtectedName(out) || EVIDENCE_SEGMENT_RE.test(out)) return false;
 	}
 	if (!t || t.includes('\n')) return false;              // 멀티라인 스크립트는 판단 불가
 	if (/[;&|`]|(\$\()/.test(t)) return false;             // 셸 명령 체이닝/치환 차단
@@ -428,7 +444,7 @@ function isReadOnlyInspection(text) {
 	// 인터프리터 인라인 코드(-c/-m/-e/--eval) 및 비화이트리스트 스크립트는 쓰기를 숨길 수 있어 차단 유지
 	if (/^(python3?|py|node)\b/i.test(firstToken)) {
 		if (/\s(?:-[cme]|--eval)\b/.test(t)) return false;
-		if (!READONLY_INTERPRETER_SCRIPTS_RE.test(t)) return false;
+		if (!READONLY_INTERPRETER_SCRIPTS_RE.test(interpreterScript(t))) return false;
 	}
 	return true;
 }
@@ -438,6 +454,22 @@ function isReadOnlyInspection(text) {
 // ---------------------------------------------------------------------------
 
 const PROTECTED_EXTENSIONS = /\.(raw|dd|dmp|mem|vmem|img|l01|ad1|e01|ex01|aff|aff4|vmdk|vhd|evtx|evtxc)$/i;
+const PROTECTED_EXT_LIST = ['raw', 'dd', 'dmp', 'mem', 'vmem', 'img', 'l01', 'ad1', 'e01', 'ex01', 'aff', 'aff4', 'vmdk', 'vhd', 'evtx', 'evtxc'];
+
+// 같은 파일을 다르게 부르는 이름도 보호 대상이다(적대적 리뷰 2026-11-03): NTFS 대체 스트림 'x.evtx::$DATA'·'x.evtx:hidden',
+// 끝 점 'x.evtx.', 와일드카드 'x.ev?x'·'x.*', 8.3 짧은 이름 'APP~1.EVT'.
+function isProtectedName(token) {
+	let name = String(token).replace(/^(.*\.[^\\/.:]+):[^\\/]*$/, '$1').replace(/[.\s]+$/, '');
+	if (PROTECTED_EXTENSIONS.test(name)) return true;
+	const seg = name.split(/[\\/]/).pop();
+	const ext = seg.includes('.') ? seg.slice(seg.lastIndexOf('.') + 1) : '';
+	if (/[*?]/.test(ext)) {
+		const re = new RegExp(`^${ext.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`, 'i');
+		return PROTECTED_EXT_LIST.some((e) => re.test(e));
+	}
+	if (/~\d+\.[a-z0-9]{1,3}$/i.test(seg)) return PROTECTED_EXT_LIST.some((e) => e.startsWith(ext.toLowerCase()));
+	return false;
+}
 // evidence 를 경로 세그먼트로 포함하는 토큰 (cp x evidence/ 같은 상대 경로 쓰기 포함).
 // evidence_note.md 처럼 evidence 로 시작하는 다른 이름은 세그먼트가 아니므로 통과.
 const EVIDENCE_SEGMENT_RE = /^(?:.*[\/\\])?evidence(?:[\/\\].*)?$/i;
@@ -453,7 +485,8 @@ const PROTECTED_PATTERNS = [
 const INLINE_EXEC_RES = [
 	/\bperl\b[^|&;\n]*\s-e\b/i,
 	/\bruby\b[^|&;\n]*\s-e\b/i,
-	/\bpowershell\b[^|&;\n]*\s-enc(odedcommand)?\b/i,
+	// -e/-ec/-en… 는 모두 -EncodedCommand 의 줄임이다(-ExecutionPolicy 는 -ex). pwsh 도 같다(적대적 리뷰 2026-11-03).
+	/\b(?:powershell|pwsh)(?:\.exe)?\b[^|&;\n]*\s-(?:e|ec|en\w*)(?=\s|$)/i,
 ];
 
 // heredoc 본문(cat << 'EOF' > out.py … EOF)은 쓰기 대상이 아니라 쓰는 내용이다. 첫 줄(대상 포함)만 검사한다.
@@ -480,7 +513,7 @@ function findViolation(rawTexts) {
 		for (const token of pathTokens([text])) {
 			// 'import dissect.eventlog.evtx' 의 모듈명은 파일 경로가 아니다(점 2개 이상, 소문자 식별자, 경로 구분자 없음).
 			if (imports && /^[a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*){2,}$/.test(token)) continue;
-			if (PROTECTED_EXTENSIONS.test(token)) return `protected extension: ${path.basename(token)}`;
+			if (isProtectedName(token)) return `protected extension: ${path.basename(token)}`;
 			if (EVIDENCE_SEGMENT_RE.test(token)) return 'evidence directory';
 		}
 	}

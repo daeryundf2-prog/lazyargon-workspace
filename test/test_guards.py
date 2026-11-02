@@ -152,6 +152,30 @@ class EvidenceGuardTests(unittest.TestCase):
         self.assertEqual(code('Get-Item "C:\\q\\App.evtx" | Select-Object @{n="x";e={$_.Delete()}}'), 1)
         self.assertEqual(code('Get-Content "C:\\q\\App.evtx" | Select-Object -First 1'), 0)
 
+    def test_adversarial_review_bypasses_are_blocked(self):
+        # 적대적 리뷰 2026-11-03: 아래 명령은 모두 더미 .evtx 를 지우거나 덮어썼다.
+        def code(cmd):
+            payload = json.dumps({"toolCall": {"name": "run_command", "args": {"CommandLine": cmd}}})
+            return run_guard("evidence_guard.mjs", ["pre-tool-use"], stdin_payload=payload).returncode
+        x = "C:\\q\\App.evtx"
+        blocked = [
+            f"Test-Path (ri {x})", f"Get-Item (Get-Item {x}).Delete()", f"(Get-Item {x}).Delete()",
+            f'Test-Path ([IO.File]::WriteAllText("{x}","x"))', f"Get-ChildItem @(move {x} C:\\x)",
+            f"python scripts\\parse_ntfs_artifacts.py C:\\q\\in.evtx -a eventlogs --outp {x}",
+            f"python scripts\\parse_ntfs_artifacts.py C:\\q\\in.evtx -a eventlogs -o{x}",
+            f"echo x> {x}::$DATA", f"echo x> {x}:hidden", "cmd /c del C:\\q\\App.ev?x", "cmd /c del C:\\q\\APP~1.EVT",
+            f"cmd /c del {x}.", "powershell -ec UgBlAG0A", "pwsh -enc UgBlAG0A", f"python wipe.py {x} verify_report.py",
+        ]
+        for cmd in blocked:
+            self.assertEqual(code(cmd), 1, cmd)
+        allowed = [
+            f"(Get-WinEvent -Path {x} -Oldest).Count", f"Get-FileHash {x}",
+            f"python scripts\\parse_ntfs_artifacts.py {x} -a eventlogs -o C:\\out\\e.json | Out-Null",
+            "python -X utf8 scripts\\verify_report.py C:\\q\\r.md", "powershell -ExecutionPolicy Bypass -File t.ps1", "rm -rf build/*",
+        ]
+        for cmd in allowed:
+            self.assertEqual(code(cmd), 0, cmd)
+
     def test_heredoc_body_mentioning_evidence_files_is_not_a_write_target(self):
         body = "cat << 'EOF' > /tmp/x/draft.py\nrows = ['Logs/Security.evtx', 'memory.raw']\nEOF"
         ok = json.dumps({"toolCall": {"name": "run_command", "args": {"CommandLine": body}}})
