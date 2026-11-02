@@ -208,6 +208,7 @@ function turnEvidence(content) {
 		searches: calls.filter((c) => /search_web|web_search|read_url/i.test(String(c.name || ''))).length,
 		runs: calls.filter((c) => RUN_CALL_RE.test(String(c.name || ''))).length,
 		args: JSON.stringify(calls.map((c) => c.args ?? c.arguments ?? c.input ?? '')),
+		names: calls.map((c) => String(c.name || '')),
 		// PowerShell Test-Path 는 없는 경로에 exit 0 + 'False' 만 남긴다(Windows QA, 2026-11-02).
 		failed: outs.filter((o) => LOOKUP_FAIL_RE.test(o)).length + (calls.some((c) => /Test-Path/i.test(JSON.stringify(c.args ?? ''))) && outs.some((o) => /(?:^|\n)\s*False\s*(?:\r?\n|$)/.test(o)) ? 1 : 0),
 		outputs: outs.join('\n').replace(/(?<=\d),(?=\d{3})/g, ''),
@@ -316,6 +317,26 @@ function selfCheckReason(risky) {
 let LAST_MESSAGE = '';
 
 // Observe log home: an absolute workspace from the payload, never the hook's cwd (the plugin repo).
+// 숫자 되묻기는 보고서·증거 작업 턴에서만 한다. 그 밖의 턴(가격 비교, 설치 안내 등)은 기록만 남긴다
+// (사용자 결정 2026-11-02: 실제 1052턴 리플레이에서 숫자 되묻기 대부분이 포렌식과 무관한 대화였다).
+const NUMERIC_KIND_RE = /^(?:출처 없는 수치|줄 수를 다른 이름으로 쓴 수치)/;
+const REPORT_WRITE_RE = /write_to_file|write_file|replace_file_content|edit_file|apply_patch|str_replace|search_replace|generate_document|fill_form|patch_document/i;
+const REPORT_FILE_RE = /\.(?:md|docx?|hwpx?|html?|pdf)\b/i;
+const EVIDENCE_DIR_NAMES = ['case', 'evidence', '증거', '자료', '원본', 'sources', 'attachments', '첨부'];
+const EVIDENCE_PATH_RE = new RegExp(`[\\\\/](?:${EVIDENCE_DIR_NAMES.join('|')})[\\\\/]`, 'i');
+// 리플레이 표본(2026-11-02)에서 데이터 정리 턴('방별로 수신자·발신자 엑셀 정리', '타임라인')이 빠져 있어 함께 둔다.
+const FORENSIC_ASK_RE = /보고서|감정서|의견서|포렌식|증거|감정|진술|고소|소장|판결|사건|대화 내보내기|카카오톡|카톡|타임라인|엑셀|명단|집계|건수|수집|추출|발신|수신|report|forensic|evidence|timeline/i;
+
+function isReportTurn(ev, payload) {
+	if (!ev) return true; // 판단할 근거가 없으면 지금처럼 묻는다
+	if (FORENSIC_ASK_RE.test(ev.user)) return true;
+	const args = ev.args.replace(/\\\\/g, '\\');
+	if (EVIDENCE_PATH_RE.test(args)) return true;
+	if (ev.names.some((n) => REPORT_WRITE_RE.test(n)) && REPORT_FILE_RE.test(args)) return true;
+	const ws = observeLogBase(payload);
+	return ws !== os.homedir() && EVIDENCE_DIR_NAMES.some((d) => fs.existsSync(path.join(ws, d)));
+}
+
 function observeLogBase(payload) {
 	const ws = Array.isArray(payload.workspacePaths) ? payload.workspacePaths[0] : undefined;
 	for (const c of [payload.cwd, ws]) {
@@ -414,7 +435,18 @@ async function main() {
 	} catch {
 		// 기록 없음 — 첫 질문
 	}
-	const risky = [...(message ? riskySentences(message, ev) : []), ...unsupportedEvidence(message, ev)].filter((r) => !asked.has(r.kind));
+	const found = [...(message ? riskySentences(message, ev) : []), ...unsupportedEvidence(message, ev)].filter((r) => !asked.has(r.kind));
+	const deferred = isReportTurn(ev, payload) ? [] : found.filter((r) => NUMERIC_KIND_RE.test(r.kind));
+	const risky = found.filter((r) => !deferred.includes(r));
+	if (deferred.length) {
+		try {
+			const dir = path.join(observeLogBase(payload), '.lazyargon');
+			fs.mkdirSync(dir, { recursive: true });
+			fs.appendFileSync(path.join(dir, 'stop-guard.jsonl'), `${JSON.stringify({ ts: new Date().toISOString(), mode: 'observe_numeric', turn: turnId, conversationId: payload.conversationId || null, sentences: deferred })}\n`);
+		} catch (err) {
+			process.stderr.write(`stop_claim_guard: numeric observe log failed: ${err.message}\n`);
+		}
+	}
 	// 증거 없는 완료 선언('모든 검증을 완료했다'): enforce 면 아래 완료 선언 가드가 막는다.
 	// observe 면 그 가드는 기록만 하므로, 기록을 남기고 자기 점검으로 한 번 묻는다(측정: 미루면 '세 파일 모두 통과' 류가 아무 질문 없이 나갔다).
 	const legacyClaim = Boolean(message) && CLAIM_RE.test(message) && !EVIDENCE_RE.test(message);

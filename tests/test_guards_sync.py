@@ -100,6 +100,7 @@ def _turn_transcript(tmp_path, outputs, calls=1):
     (["report.py:42 에서 표를 만들지 않음", "ok"], "표가 출력되지 않습니다.", False),
 ])
 def test_stop_claim_guard_uses_turn_evidence(tmp_path, outputs, message, checked):
+    (tmp_path / "evidence").mkdir()  # 숫자 되묻기는 증거 작업 턴에서만 한다
     payload = json.dumps({"hook_event_name": "Stop", "cwd": str(tmp_path), "last_assistant_message": message,
                           "transcriptPath": _turn_transcript(tmp_path, outputs)}, ensure_ascii=False)
     out = json.loads(run_node_script("stop_claim_guard.mjs", stdin_payload=payload).stdout)
@@ -172,6 +173,7 @@ def test_stop_claim_guard_checks_cited_evidence_in_self_check_reply(tmp_path, me
     ("wc -l /p/logs/auth.log", "로그인 기록은 3건입니다.", True),
 ])
 def test_stop_claim_guard_wc_l_entries_vs_lines(tmp_path, command, message, checked):
+    (tmp_path / "evidence").mkdir()  # 숫자 되묻기는 증거 작업 턴에서만 한다
     steps = [{"type": "USER_INPUT", "content": "q"},
              {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": "run_command", "args": {"CommandLine": command}}]},
              {"type": "GENERIC", "content": "Command output:\n       3"}]
@@ -277,6 +279,7 @@ def test_lookup_guard_content_reads(tmp_path, name, args, step, warned):
     ({"type": "PLANNER_RESPONSE", "content": "삭제는 1700건입니다."}, True),
 ])
 def test_stop_claim_guard_numbers_from_prior_turn_outputs(tmp_path, prior, checked):
+    (tmp_path / "evidence").mkdir()  # 숫자 되묻기는 증거 작업 턴에서만 한다
     steps = [{"type": "USER_INPUT", "content": "분석해"},
              {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": "run_command", "args": {"CommandLine": "python a.py"}}]},
              prior,
@@ -287,6 +290,31 @@ def test_stop_claim_guard_numbers_from_prior_turn_outputs(tmp_path, prior, check
                           "last_assistant_message": "영구 삭제는 총 1700건이었습니다."}, ensure_ascii=False)
     out = json.loads(run_node_script("stop_claim_guard.mjs", stdin_payload=payload).stdout)
     assert ("SELF-CHECK" in out.get("reason", "")) is checked, out
+
+
+@pytest.mark.parametrize("user,call,message,checked", [
+    # 포렌식과 무관한 턴의 출처 없는 수치는 기록만 한다(사용자 결정 2026-11-02)
+    ("노트북 추천해줘", None, "이 모델은 사용자 85%가 만족합니다.", False),
+    # 같은 문장도 보고서 요청·보고서 파일 쓰기·증거 경로 턴에서는 되묻는다
+    ("보고서 써줘", None, "이 모델은 사용자 85%가 만족합니다.", True),
+    ("정리해줘", {"name": "write_to_file", "args": {"TargetFile": "C:\\x\\정리.md"}}, "이 모델은 사용자 85%가 만족합니다.", True),
+    ("봐줘", {"name": "view_file", "args": {"AbsolutePath": "C:\\x\\case\\chat.txt"}}, "이 모델은 사용자 85%가 만족합니다.", True),
+    # 숫자가 아닌 되묻기는 어느 턴에서나 유지
+    ("노트북 추천해줘", None, "tool.py 는 Linux에서 정상 동작합니다.", True),
+])
+def test_stop_claim_guard_numeric_self_check_only_on_report_turns(tmp_path, user, call, message, checked):
+    steps = [{"type": "USER_INPUT", "content": user}]
+    if call:
+        steps += [{"type": "PLANNER_RESPONSE", "tool_calls": [call]}, {"type": "GENERIC", "content": "ok"}]
+    tp = tmp_path / "transcript_full.jsonl"
+    tp.write_text("\n".join(json.dumps(s, ensure_ascii=False) for s in steps), encoding="utf-8")
+    payload = json.dumps({"hook_event_name": "Stop", "cwd": str(tmp_path), "last_assistant_message": message,
+                          "transcriptPath": str(tp)}, ensure_ascii=False)
+    out = json.loads(run_node_script("stop_claim_guard.mjs", stdin_payload=payload).stdout)
+    assert ("SELF-CHECK" in out.get("reason", "")) is checked, out
+    log = tmp_path / ".lazyargon" / "stop-guard.jsonl"
+    modes = [json.loads(line)["mode"] for line in log.read_text(encoding="utf-8").splitlines()] if log.exists() else []
+    assert ("observe_numeric" in modes) is (not checked), modes
 
 
 def test_lookup_guard_pairs_parallel_calls_with_their_outputs(tmp_path):
