@@ -398,7 +398,11 @@ function pathTokens(texts) {
 const READ_ONLY_VERBS = /^(sha256sum|md5sum|sha1sum|shasum|sha256deep|cat|ls|dir|file|stat|head|tail|wc|strings|exiftool|fls|ils|icat|img_stat|fsstat|jpeg_extract|python3?|py|node|Get-WinEvent|Get-FileHash|Get-Item|Get-ChildItem|Get-Content|Get-ItemProperty|Test-Path|Select-String)\b/i;
 // 출력을 버리거나 추리기만 하는 끝 파이프(| Out-Null 등)는 쓰기가 아니다. Windows QA(2026-11-02)에서
 // 'parse_ntfs_artifacts.py … | Out-Null' 과 '(Get-WinEvent -Path x.evtx).Count' 가 쓰기로 차단됐다.
-const DISCARD_PIPE_TAIL_RE = /(?:\s*\|\s*(?:Out-Null|Out-String|Measure-Object|Select-Object|Format-List|Format-Table)\b[^|;&>`]*)+$/i;
+// 끝 파이프에 스크립트 블록·괄호·변수가 있으면({ $_.Delete() } 등) 걷어 내지 않는다.
+const DISCARD_PIPE_TAIL_RE = /(?:\s*\|\s*(?:Out-Null|Out-String|Measure-Object|Select-Object|Format-List|Format-Table)\b[^|;&>`{}()$]*)+$/i;
+// '(Get-WinEvent -Path x.evtx).Count' 처럼 괄호로 감싼 읽기는 끝에 속성 접근만 허용한다.
+// '(Get-Item x.evtx).Delete()' 같은 메서드 호출은 쓰기다(적대적 리뷰 2026-11-03).
+const PAREN_READ_RE = /^\s*\([^()]*\)(?:\.\w+)*\s*$/;
 const WRITE_SIGNS_RE = /(>|>>|\btee\b|\bdd\b|\bcp\b|\bmv\b|\brm\b|\bshred\b|\btruncate\b|\bchmod\b|\bchown\b|\bchattr\b|\bmkfs\b|\bsponge\b|\binstall\b|\btouch\b|\bmktemp\b|\bsed\b[^\n]*\s-i\b|\bRemove-Item\b|\bSet-Content\b|\bAdd-Content\b|\bOut-File\b|\bCopy-Item\b|\bMove-Item\b|\bClear-Content\b|\bdel\b|\berase\b|(?:\s|^)(?:-e|--eval)\b|(?<![-\w])-\w+=)/i;
 const READONLY_INTERPRETER_SCRIPTS_RE = /(?:^|[\/\\'"\s])(verify_report\.py|forensic_audit\.py|audit_timestamps\.py|coverage_audit\.mjs|verify_legal_factuality\.py|check_tool\.py|parse_ntfs_artifacts\.py)(?:['"\s]|$)/i;
 // Windows 에이전트가 명령 앞에 붙이는 출력 인코딩 설정(줄 또는 ';' 로 구분)은 쓰기가 아니므로 걷어 낸다.
@@ -411,6 +415,7 @@ function isReadOnlyInspection(text) {
 	const rest = segs.filter((s) => !ENCODING_PREAMBLE_RE.test(s));
 	if (rest.length !== 1) return false;
 	const t = rest[0].replace(DISCARD_PIPE_TAIL_RE, '');
+	if (/^\s*\(/.test(t) && !PAREN_READ_RE.test(t)) return false;
 	for (const m of t.matchAll(OUTPUT_ARG_RE)) {
 		const out = m[1].replace(/^['"]|['"]$/g, '');
 		if (PROTECTED_EXTENSIONS.test(out) || EVIDENCE_SEGMENT_RE.test(out)) return false;

@@ -146,6 +146,11 @@ class EvidenceGuardTests(unittest.TestCase):
         self.assertEqual(code('Get-Content "C:\\q\\App.evtx" | Out-File "C:\\q\\copy.txt"'), 1)
         self.assertEqual(code('Get-ChildItem "C:\\q\\App.evtx" | Remove-Item'), 1)
         self.assertEqual(code('wevtutil epl Application "C:\\q\\App.evtx" /ow:true'), 1)
+        # 적대적 리뷰 2026-11-03: 괄호 뒤 메서드 호출과 끝 파이프의 스크립트 블록은 쓰기다
+        self.assertEqual(code('(Get-Item "C:\\q\\App.evtx").Delete()'), 1)
+        self.assertEqual(code('(Get-ChildItem "C:\\q\\App.evtx").MoveTo("C:\\x\\a.evtx")'), 1)
+        self.assertEqual(code('Get-Item "C:\\q\\App.evtx" | Select-Object @{n="x";e={$_.Delete()}}'), 1)
+        self.assertEqual(code('Get-Content "C:\\q\\App.evtx" | Select-Object -First 1'), 0)
 
     def test_heredoc_body_mentioning_evidence_files_is_not_a_write_target(self):
         body = "cat << 'EOF' > /tmp/x/draft.py\nrows = ['Logs/Security.evtx', 'memory.raw']\nEOF"
