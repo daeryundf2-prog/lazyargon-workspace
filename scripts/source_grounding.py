@@ -438,6 +438,9 @@ def check(report_text: str, source_paths: list[str], timeline_text: str = "") ->
 
     lines, fenced = _clean_report(report_text)
     quotes_checked = 0
+    # 원본과 대조해 맞은 표 행의 화자. '총 6건', '김민수: 4건' 같은 건수는 이 행 수로 대조한다(Windows QA 2026-11-02:
+    # 정답 보고서가 집계 JSON 이 없다는 이유로 '근거 없는 수치'로 FAIL 했다).
+    table_verified: list[str] = []
     table: dict[str, Any] = {}
     for idx, line in enumerate(lines):
         ln = idx + 1
@@ -510,6 +513,8 @@ def check(report_text: str, source_paths: list[str], timeline_text: str = "") ->
                     wrong = named if not (named & said_by) else set()
             if wrong:
                 errors.append(f"L{ln} 화자 불일치: \"{nq[:30]}\" 은 원본에서 {sorted(said_by)} 의 발언인데 보고서는 {sorted(wrong)} 로 적었다")
+            elif explicit:
+                table_verified.append(explicit)
         if not texts or idx in fenced:
             continue
         if missing:
@@ -540,6 +545,12 @@ def check(report_text: str, source_paths: list[str], timeline_text: str = "") ->
                 continue
             if any(s["status"] == "OK" and s["rows"] == num and s["re"].search(line) for s in coverage):
                 continue
+            if m.group(2) in ("건", "개", "회", "번") and table_verified:
+                # 숫자 앞 같은 절('김민수: 4건', '박준호 1건')에 화자가 있으면 그 화자의 행 수, 없으면 전체 행 수와 대조한다
+                clause = re.split(r"[,(（|;/·]", line[: m.start()])[-1]
+                who = [s for s in set(table_verified) if s in clause]
+                if num == str(table_verified.count(who[0]) if len(who) == 1 else len(table_verified) if not who else -1):
+                    continue
             if not _count_grounded(num, m.group(2), corpus_digits, struct, line):
                 unsupported(f"L{ln} 근거 없는 수치: {m.group(0).strip()} — 자료나 분석 산출물(집계 JSON 등)에 이 값이 없다", m.start(), m.end())
         if not EXAMINER_DUR_RE.search(line):

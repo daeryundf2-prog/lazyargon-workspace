@@ -107,6 +107,27 @@ def test_kakao_pc_table_rows_check_time_per_quote(tmp_path: Path, row: str, need
 
 
 @pytest.mark.parametrize(
+    "summary,needle",
+    [
+        ("대화: 총 2건 (김민수 1건, 박준호 1건)", None),
+        ("대화: 총 3건", "근거 없는 수치"),
+        ("김민수: 2건", "근거 없는 수치"),
+    ],
+)
+def test_kakao_table_counts_are_checked_against_verified_rows(tmp_path: Path, summary: str, needle: str | None):
+    """표의 행 수로 셈 건수는 집계 JSON 없이도 근거가 있다(Windows QA 2026-11-02: 정답 보고서가 FAIL 했다)."""
+    case = _kakao_pc_case(tmp_path)
+    body = ("# 보고서\n\n| 날짜 | 시각 | 발언자 | 원문 |\n|---|---|---|---|\n"
+            "| 2026-10-03 | 15:33 | 김민수 | 내일까지 300만원 보내줘 |\n"
+            "| 2026-10-04 | 00:03 | 박준호 | 내가 50만원 빌려줄 수 있어 |\n\n" + summary + "\n")
+    res = run(write(case, body), str(case / "evidence"))
+    if needle is None:
+        assert not res["errors"], res["errors"]
+    else:
+        assert any(needle in e for e in res["errors"]), res["errors"]
+
+
+@pytest.mark.parametrize(
     "body,needle",
     [
         ("김철수는 '돈을 이미 보냈다'라고 했다.", "원본에 없는 인용"),
