@@ -353,7 +353,8 @@ def test_stop_hook_records_lookup_that_failed_right_before_the_answer(tmp_path):
         assert proc.returncode == 0 and proc.stdout.strip() == "{}", proc
     rows = (tmp_path / ".lazyargon" / "lookups.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(rows) == 1 and json.loads(rows[0])["step"] == 6, rows
-    assert (tmp_path / "feedback" / "stop1.jsonl").exists()
+    # 답이 이미 나간 뒤라 경고는 대기열에 넣지 않는다(다음의 무관한 질문에 끼어들었다, 실기 d5bd6dcb)
+    assert not (tmp_path / "feedback" / "stop1.jsonl").exists()
 
 
 def test_lookup_guard_pairs_parallel_calls_with_their_outputs(tmp_path):

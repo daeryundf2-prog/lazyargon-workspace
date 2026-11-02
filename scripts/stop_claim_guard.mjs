@@ -58,11 +58,12 @@ import { fileURLToPath } from 'node:url';
 // 도구 하나가 실패하고 바로 답하며 끝난 턴은 PostToolUse 시점에 그 출력이 transcript 에 없어 조회 실패가
 // 기록되지 않았다(Windows 실기 2026-11-03). 턴이 끝난 이 시점에 lookup_guard 를 한 번 더 돌린다.
 // Stop 훅은 lazyargon hooks.json 한 곳에만 둔다는 규칙 때문에 별도 Stop 항목 대신 여기서 부른다.
+// 기록만 한다: 답이 이미 나간 뒤라 경고를 대기열에 넣으면 다음의 무관한 질문에 끼어든다(실기 d5bd6dcb).
 function recordFailedLookups(raw) {
 	const here = path.dirname(fileURLToPath(import.meta.url));
 	const guard = path.join(here, 'lookup_guard.mjs');
 	if (!fs.existsSync(guard)) return;
-	spawnSync(process.execPath, [path.join(here, 'post_tool_feedback.mjs'), 'wrap', process.execPath, guard], { input: raw, encoding: 'utf8', timeout: 4000 });
+	spawnSync(process.execPath, [guard], { input: raw, encoding: 'utf8', timeout: 4000 });
 }
 
 function readStdin(limitMs) {
