@@ -212,6 +212,9 @@ function turnEvidence(content) {
 		failed: outs.filter((o) => LOOKUP_FAIL_RE.test(o)).length + (calls.some((c) => /Test-Path/i.test(JSON.stringify(c.args ?? ''))) && outs.some((o) => /(?:^|\n)\s*False\s*(?:\r?\n|$)/.test(o)) ? 1 : 0),
 		outputs: outs.join('\n').replace(/(?<=\d),(?=\d{3})/g, ''),
 		user: String(turn[0]?.type === 'USER_INPUT' ? turn[0].content || '' : ''),
+		// 이전 턴의 도구 출력·사용자 메시지(모델 답변은 제외). '지금까지 한 것을 정리해줘' 같은 턴은 앞 턴에서 얻은
+		// 수치를 옮긴다. 실제 transcript 1052턴 리플레이(2026-11-02): 이번 턴만 보면 59% 턴이 되물음, 이전 턴 출력까지 보면 44%.
+		history: steps.slice(0, start).filter((s) => s.type === 'GENERIC' || s.type === 'USER_INPUT').map((s) => String(s.content || '')).join('\n').replace(/(?<=\d),(?=\d{3})/g, ''),
 	};
 }
 
@@ -277,7 +280,7 @@ function riskySentences(message, ev = null) {
 				const digits = m[1].replace(/,/g, '');
 				if (Number(digits) < 2) continue;
 				const re = new RegExp(`(?<![\\d.])${digits.replace('.', '\\.')}(?![\\d])`);
-				if (!re.test(ev.outputs) && !re.test(ev.user)) {
+				if (!re.test(ev.outputs) && !re.test(ev.user) && !re.test(ev.history)) {
 					hit = { kind: `출처 없는 수치(${m[0]})` };
 					break;
 				}

@@ -239,6 +239,69 @@ def test_lookup_guard_read_file_not_found(tmp_path):
     assert "[LOOKUP GUARD] WARN" in run_node_script("lookup_guard.mjs", stdin_payload=payload).stderr
 
 
+_READ_OK = "Created At: 2026-11-02T07:00:00+09:00\nCompleted At: 2026-11-02T07:00:00+09:00\nShowing lines 1-2 of 2\n1: def f():\n2:     raise KeyError('key not found')"
+
+
+@pytest.mark.parametrize("name,args,step,warned", [
+    # Windows QA 2026-11-02: 본문에 'not found' 가 있는 정상 파일 열람은 실패가 아니다
+    ("read_file", {"AbsolutePath": "C:\\x\\util.py"}, {"content": _READ_OK}, False),
+    # 실제 Antigravity 실패 단계: status=ERROR + 'Encountered error in step execution'
+    ("read_file", {"AbsolutePath": "C:\\x\\nope.py"}, {"status": "ERROR", "error": "file does not exist",
+     "content": "Created At: x\nCompleted At: x\nEncountered error in step execution: file does not exist"}, True),
+    # 기록 파일을 읽기만 해도 그 안의 실패 문구가 다시 기록되던 자기 오탐
+    ("run_command", {"CommandLine": "Get-Content \"$env:USERPROFILE\\.lazyargon\\lookups.jsonl\" -Tail 1"},
+     {"content": "Command exited with code 0.\nCommand output:\n{\"failure\":\"No such file or directory\"}"}, False),
+    ("run_command", {"CommandLine": "Get-Content C:\\temp\\nope.txt"},
+     {"content": "Command exited with code 1.\nCommand output:\nGet-Content : Cannot find path 'C:\\temp\\nope.txt' because it does not exist.\n    + CategoryInfo : ObjectNotFound"}, True),
+    # 스크립트의 문법 오류(종료 코드 1)는 조회 실패가 아니다. import 실패는 조회 실패다
+    ("run_command", {"CommandLine": "python -c \"import re\nx = (\""},
+     {"content": "The command exited with code 1.\nOutput:\n  File \"<string>\", line 2\nSyntaxError: '(' was never closed"}, False),
+    ("run_command", {"CommandLine": "python -c \"import olefile\""},
+     {"content": "The command exited with code 1.\nOutput:\nModuleNotFoundError: No module named 'olefile'"}, True),
+])
+def test_lookup_guard_content_reads(tmp_path, name, args, step, warned):
+    steps = [{"type": "USER_INPUT", "content": "q"},
+             {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": name, "args": args}]},
+             {"type": "GENERIC", "step_index": 2, **step}]
+    tp = tmp_path / "transcript_full.jsonl"
+    tp.write_text("\n".join(json.dumps(s, ensure_ascii=False) for s in steps), encoding="utf-8")
+    payload = json.dumps({"conversationId": "cr", "cwd": str(tmp_path), "transcriptPath": str(tp)})
+    proc = run_node_script("lookup_guard.mjs", stdin_payload=payload)
+    assert ("[LOOKUP GUARD] WARN" in proc.stderr) is warned, proc.stderr
+
+
+@pytest.mark.parametrize("prior,checked", [
+    # 앞 턴 도구 출력에 있던 수치를 정리하는 턴은 출처가 있다
+    ({"type": "GENERIC", "content": "Command output:\n삭제 1700건"}, False),
+    # 앞 턴 모델 답변에만 있던 수치는 출처가 아니다
+    ({"type": "PLANNER_RESPONSE", "content": "삭제는 1700건입니다."}, True),
+])
+def test_stop_claim_guard_numbers_from_prior_turn_outputs(tmp_path, prior, checked):
+    steps = [{"type": "USER_INPUT", "content": "분석해"},
+             {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": "run_command", "args": {"CommandLine": "python a.py"}}]},
+             prior,
+             {"type": "USER_INPUT", "content": "지금까지 한 것을 정리해줘"}]
+    tp = tmp_path / "transcript_full.jsonl"
+    tp.write_text("\n".join(json.dumps(s, ensure_ascii=False) for s in steps), encoding="utf-8")
+    payload = json.dumps({"hook_event_name": "Stop", "cwd": str(tmp_path), "transcriptPath": str(tp),
+                          "last_assistant_message": "영구 삭제는 총 1700건이었습니다."}, ensure_ascii=False)
+    out = json.loads(run_node_script("stop_claim_guard.mjs", stdin_payload=payload).stdout)
+    assert ("SELF-CHECK" in out.get("reason", "")) is checked, out
+
+
+def test_lookup_guard_pairs_parallel_calls_with_their_outputs(tmp_path):
+    # 한 응답의 두 호출: 두 번째(ls) 출력의 실패를 첫 호출(read_file) 탓으로 돌리지 않는다
+    steps = [{"type": "USER_INPUT", "content": "q"},
+             {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": "read_file", "args": {"AbsolutePath": "/p/a.md"}},
+                                                       {"name": "run_command", "args": {"CommandLine": "ls /x/gone"}}]},
+             {"type": "GENERIC", "step_index": 2, "content": _READ_OK},
+             {"type": "GENERIC", "step_index": 3, "content": "ls: /x/gone: No such file or directory"}]
+    tp = tmp_path / "transcript_full.jsonl"
+    tp.write_text("\n".join(json.dumps(s) for s in steps), encoding="utf-8")
+    proc = run_node_script("lookup_guard.mjs", stdin_payload=json.dumps({"conversationId": "pc", "cwd": str(tmp_path), "transcriptPath": str(tp)}))
+    assert "ls /x/gone" in proc.stderr and "/p/a.md" not in proc.stderr, proc.stderr
+
+
 def test_lookup_guard_warns_on_failed_lookup(tmp_path):
     steps = [{"type": "USER_INPUT", "content": "q"},
              {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": "run_command", "args": {"CommandLine": "ls /x/browsers"}}]},
