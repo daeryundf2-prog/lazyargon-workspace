@@ -75,6 +75,7 @@ META_TIME_RE = re.compile(r"(?:수집|분석|작성|출력|보고|추출|검토|
 EXAMINER_DUR_RE = re.compile(r"소요|걸렸|걸린|작업\s*시간|분석\s*시간")
 MONEY_COMPOUND_RE = re.compile(r"(?<![\d.,])(\d+)\s?억\s?(?:(\d+)\s?(천만|백만|만)\s?)?원")
 EVIDENCE_TAG_RE = re.compile(r"<evidence(?:\s[^>]*)?>(.*?)</evidence>", re.IGNORECASE | re.DOTALL)
+EVENT_COUNT_RE = re.compile(r"송금|입금|이체|결제|출금|환불|접속|로그인|삭제|전송|통화|방문|실행|다운로드|업로드|폭행|협박")
 COUNT_RE = re.compile(
     r"(?<![A-Za-z\d.,제])(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s?"
     r"(%|건|개(?![월년])|회(?![사의원신차])|통(?![화장신보])|명(?![의령시확백])|차례|시간(?![대표])|분간|초간|"
@@ -441,6 +442,7 @@ def check(report_text: str, source_paths: list[str], timeline_text: str = "") ->
     # 원본과 대조해 맞은 표 행의 화자. '총 6건', '김민수: 4건' 같은 건수는 이 행 수로 대조한다(Windows QA 2026-11-02:
     # 정답 보고서가 집계 JSON 이 없다는 이유로 '근거 없는 수치'로 FAIL 했다).
     table_verified: list[str] = []
+    seen_rows: set[str] = set()
     table: dict[str, Any] = {}
     for idx, line in enumerate(lines):
         ln = idx + 1
@@ -513,7 +515,10 @@ def check(report_text: str, source_paths: list[str], timeline_text: str = "") ->
                     wrong = named if not (named & said_by) else set()
             if wrong:
                 errors.append(f"L{ln} 화자 불일치: \"{nq[:30]}\" 은 원본에서 {sorted(said_by)} 의 발언인데 보고서는 {sorted(wrong)} 로 적었다")
-            elif explicit:
+            elif explicit and re.sub(r"\s+", " ", line.strip()) not in seen_rows:
+                # 같은 행을 복사해 건수를 부풀리지 못하게 한 번만 센다. 같은 말을 다른 시각에 다시 한 것은 다른 행이다
+                # (실제 카톡: 김민수 '내일까지 300만원 보내줘' 09:07·15:33).
+                seen_rows.add(re.sub(r"\s+", " ", line.strip()))
                 table_verified.append(explicit)
         if not texts or idx in fenced:
             continue
@@ -545,7 +550,9 @@ def check(report_text: str, source_paths: list[str], timeline_text: str = "") ->
                 continue
             if any(s["status"] == "OK" and s["rows"] == num and s["re"].search(line) for s in coverage):
                 continue
-            if m.group(2) in ("건", "개", "회", "번") and table_verified:
+            # 표 행 수는 '메시지 몇 건'의 근거일 뿐이다. '송금 2회', '입금 2건'처럼 사건·행위를 센 수는 표로 증명되지 않는다
+            # (적대적 리뷰 2026-11-03).
+            if m.group(2) in ("건", "개") and table_verified and not EVENT_COUNT_RE.search(line):
                 # 숫자 앞 같은 절('김민수: 4건', '박준호 1건')에 화자가 있으면 그 화자의 행 수, 없으면 전체 행 수와 대조한다
                 clause = re.split(r"[,(（|;/·]", line[: m.start()])[-1]
                 who = [s for s in set(table_verified) if s in clause]

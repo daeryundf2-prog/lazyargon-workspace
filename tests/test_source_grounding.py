@@ -112,6 +112,9 @@ def test_kakao_pc_table_rows_check_time_per_quote(tmp_path: Path, row: str, need
         ("대화: 총 2건 (김민수 1건, 박준호 1건)", None),
         ("대화: 총 3건", "근거 없는 수치"),
         ("김민수: 2건", "근거 없는 수치"),
+        # 적대적 리뷰 2026-11-03: 표 행 수는 송금·입금 같은 사건 횟수의 근거가 아니다
+        ("총 2회 송금했다", "근거 없는 수치"),
+        ("입금은 총 2건이다", "근거 없는 수치"),
     ],
 )
 def test_kakao_table_counts_are_checked_against_verified_rows(tmp_path: Path, summary: str, needle: str | None):
@@ -125,6 +128,25 @@ def test_kakao_table_counts_are_checked_against_verified_rows(tmp_path: Path, su
         assert not res["errors"], res["errors"]
     else:
         assert any(needle in e for e in res["errors"]), res["errors"]
+
+
+def test_kakao_table_count_ignores_duplicated_rows(tmp_path: Path):
+    """같은 행을 복사해 건수를 부풀릴 수 없다(적대적 리뷰 2026-11-03)."""
+    case = _kakao_pc_case(tmp_path)
+    row = "| 2026-10-03 | 15:33 | 김민수 | 내일까지 300만원 보내줘 |\n"
+    body = "# 보고서\n\n| 날짜 | 시각 | 발언자 | 원문 |\n|---|---|---|---|\n" + row * 2 + "\n대화: 총 2건\n"
+    res = run(write(case, body), str(case / "evidence"))
+    assert any("근거 없는 수치" in e for e in res["errors"]), res["errors"]
+
+
+def test_kakao_same_words_at_different_times_are_two_rows(tmp_path: Path):
+    """같은 말을 다른 시각에 두 번 한 것은 두 건이다(실제 보고서 김민수 09:07·15:33)."""
+    case = _kakao_pc_case(tmp_path)  # 픽스처에 김민수가 09:07·15:33 에 같은 말을 했다
+    body = ("# 보고서\n\n| 날짜 | 시각 | 발언자 | 원문 |\n|---|---|---|---|\n"
+            "| 2026-10-03 | 09:07 | 김민수 | 내일까지 300만원 보내줘 |\n"
+            "| 2026-10-03 | 15:33 | 김민수 | 내일까지 300만원 보내줘 |\n\n김민수: 2건\n")
+    res = run(write(case, body), str(case / "evidence"))
+    assert not [e for e in res["errors"] if "근거 없는 수치" in e], res["errors"]
 
 
 @pytest.mark.parametrize(
