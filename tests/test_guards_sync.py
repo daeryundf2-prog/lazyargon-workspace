@@ -317,6 +317,24 @@ def test_stop_claim_guard_numeric_self_check_only_on_report_turns(tmp_path, user
     assert ("observe_numeric" in modes) is (not checked), modes
 
 
+_RF_FAIL = "Created At: x\nCompleted At: x\nEncountered error in step execution: file does not exist"
+
+
+@pytest.mark.parametrize("message", [
+    # 실기 2026-11-03(1e94c1e5): 경로가 인라인 코드 안에 있어도 조회 범위를 밝힌 문장이다
+    "`C:/temp/lazyqa/registry_parser.py` 파일이 존재하지 않습니다 (`Read` 결과: `file does not exist`).",
+    # 호출한 도구 이름 인용은 근거 인용 불일치가 아니다
+    "점검: 근거 있음 — `read_file` 도구로 `C:\\temp\\lazyqa\\registry_parser.py` 경로를 조회해 `file does not exist` 출력을 확인함.",
+])
+def test_stop_claim_guard_scoped_absence_in_inline_code_is_not_rechecked(tmp_path, message):
+    tp = _one_call_transcript(tmp_path, "C:\\temp\\lazyqa 에 registry_parser.py 가 있는지 확인해", "read_file",
+                              {"Path": "C:\\temp\\lazyqa\\registry_parser.py"}, _RF_FAIL)
+    payload = json.dumps({"hook_event_name": "Stop", "cwd": str(tmp_path), "last_assistant_message": message,
+                          "transcriptPath": tp}, ensure_ascii=False)
+    out = json.loads(run_node_script("stop_claim_guard.mjs", stdin_payload=payload).stdout)
+    assert "SELF-CHECK" not in out.get("reason", ""), out
+
+
 def test_stop_hook_records_lookup_that_failed_right_before_the_answer(tmp_path):
     # Windows 실기 2026-11-03: read_file 실패 1회 후 바로 답하고 끝난 턴은 PostToolUse 시점에 출력이 없어 기록이 빠졌다.
     # Stop 훅(stop_claim_guard)이 lookup_guard 를 한 번 더 불러, 턴이 끝난 뒤에는 기록되고 두 번 기록되지 않는지 본다.

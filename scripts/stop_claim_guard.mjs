@@ -236,7 +236,8 @@ function turnEvidence(content) {
 function unsupportedEvidence(message, ev) {
 	if (!message || !ev || !/점검\s*:\s*근거\s*있음/.test(message)) return [];
 	const norm = (s) => s.replace(/\\\\/g, '\\').replace(/\s+/g, ' ').trim();
-	const pool = norm(`${ev.outputs}\n${ev.args || ''}`);
+	// 호출한 도구 이름(`read_file`)을 인용한 것은 근거 인용 불일치가 아니다(Windows 실기 2026-11-03).
+	const pool = norm(`${ev.outputs}\n${ev.args || ''}\n${(ev.names || []).join('\n')}`);
 	const cites = [...message.matchAll(/`([^`\n]{3,200})`|"([^"\n]{3,200})"/g)].map((m) => norm(m[1] || m[2]));
 	const missing = cites.filter((c) => !pool.includes(c));
 	return missing.length
@@ -244,8 +245,12 @@ function unsupportedEvidence(message, ev) {
 		: [];
 }
 
+const PATHISH_RE = /^[\w~.:-]*[\\/]\S*$|^[\w.-]+\.\w{1,5}$/;
+
 function riskySentences(message, ev = null) {
-	const text = message.replace(/```[\s\S]*?```/g, ' ').replace(/`[^`\n]*`/g, ' ');
+	// 인라인 코드는 지우되, 경로·파일명은 남겨 범위 판정에 쓴다. 실기(2026-11-03): '`C:/temp/lazyqa/registry_parser.py` 파일이
+	// 존재하지 않습니다'에서 경로가 지워져 부재 단정으로 되물었다.
+	const text = message.replace(/```[\s\S]*?```/g, ' ').replace(/`([^`\n]*)`/g, (m, c) => (PATHISH_RE.test(c.trim()) ? c : ' '));
 	// 부재 단정은 근거가 약한 턴에서만 되묻는다: 조회가 없었거나, 실패했거나, 검색 1~2회뿐인 턴.
 	// 빈 결과가 '실패'로 세어지므로, 3회 이상 조회해 일부라도 성공한 턴은 약한 근거로 보지 않는다.
 	const weak = !ev || ev.calls === 0 || (ev.failed > 0 && (ev.calls < 3 || ev.failed === ev.calls)) || (ev.searches > 0 && ev.searches <= 2 && ev.calls === ev.searches);
@@ -266,7 +271,10 @@ function riskySentences(message, ev = null) {
 		// 직접 조회한 경로를 이름으로 대는 부재 문장('…/x.py: 파일 없음')은 그 조회 범위에 맞춘 서술이다.
 		// Windows 경로(C:\temp\x.py)와, 출력에는 False 만 남고 경로는 명령 인자에만 있는 Test-Path 도 범위 서술로 본다.
 		const seen = ev ? `${ev.outputs}\n${String(ev.args || '').replace(/\\\\/g, '\\')}` : '';
-		const scoped = ev && (line.match(/[A-Za-z]:\\[^\s"'`]+|[~\w.-]*\/[\w.\/-]+|[\w-]+\.(?:py|js|mjs|ts|json|md|ya?ml|log|sh|txt|go|rs|c)\b/g) || []).some((t) => t.length > 3 && seen.includes(t.replace(/[.,)]+$/, '')));
+		const scoped = ev && (line.match(/[A-Za-z]:\\[^\s"'`]+|[~\w.-]*\/[\w.\/-]+|[\w-]+\.(?:py|js|mjs|ts|json|md|ya?ml|log|sh|txt|go|rs|c)\b/g) || []).some((t) => {
+			const u = t.replace(/[.,)]+$/, '');
+			return t.length > 3 && (seen.includes(u) || seen.includes(u.replace(/\//g, '\\'))); // C:/x 와 C:\x 는 같은 경로
+		});
 		const inOut = (d) => ev && new RegExp(`(?<![\\d.])${d.replace(/\./g, '\\.')}(?![\\d])`).test(ev.outputs);
 		const allOk = () => {
 			const m = line.match(/(\d+)\s*(?:개|번|회|files?|tests?|runs?)|(두|세|네|다섯)\s*(?:번|개|파일|곳)?\s|\b(both)\b/i);
