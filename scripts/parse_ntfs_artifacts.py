@@ -26,7 +26,7 @@ def _wevtutil_eventlogs(target_path: str, limit: int = MAX_RECORDS_DEFAULT):
     import subprocess
     import xml.etree.ElementTree as ET
     if os.name != "nt" or not shutil.which("wevtutil.exe"):
-        return None
+        return None  # 호출측은 None 이면 대체 경로 없음, 아니면 (records, error)
     evtx_files = []
     if os.path.isfile(target_path) and target_path.lower().endswith(".evtx"):
         evtx_files.append(target_path)
@@ -36,20 +36,27 @@ def _wevtutil_eventlogs(target_path: str, limit: int = MAX_RECORDS_DEFAULT):
                 if fn.lower().endswith(".evtx"):
                     evtx_files.append(os.path.join(root_d, fn))
     if not evtx_files:
-        return None
+        return None  # 대상에 .evtx 가 없으면 대체 경로를 쓰지 않는다
     records = []
+    # 읽지 못한 파일을 건너뛰면 '0건·오류 없음'으로 보고된다. 실패를 모아 돌려준다(적대적 리뷰 2026-11-03).
+    failures = []
     for evtx in evtx_files:
         rem = max(1, limit - len(records))
         proc = subprocess.run(
             ["wevtutil.exe", "qe", evtx, "/lf:true", "/f:xml", f"/c:{rem}"],
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60
         )
-        if proc.returncode != 0 or not proc.stdout.strip():
+        if proc.returncode != 0:
+            failures.append(f"wevtutil 실패 '{evtx}': {(proc.stderr or proc.stdout).strip()[:200]}")
+            continue
+        if not proc.stdout.strip():
+            failures.append(f"EVTX 레코드 0건 '{evtx}' — 빈 로그인지 손상인지 다른 도구로 확인할 것")
             continue
         xml_wrapped = "<Events>" + proc.stdout + "</Events>"
         try:
             root = ET.fromstring(xml_wrapped)
-        except ET.ParseError:
+        except ET.ParseError as e:
+            failures.append(f"wevtutil XML 해석 실패 '{evtx}': {e}")
             continue
         ns = {"e": "http://schemas.microsoft.com/win/2004/08/events/event"}
         for ev in root.findall("e:Event", ns):
@@ -70,8 +77,8 @@ def _wevtutil_eventlogs(target_path: str, limit: int = MAX_RECORDS_DEFAULT):
                 "source_file": os.path.basename(evtx),
             })
             if len(records) >= limit:
-                return records
-    return records
+                return records, ("; ".join(failures) or None)
+    return records, ("; ".join(failures) or None)
 
 
 
@@ -107,6 +114,7 @@ def _direct_evtx(files: list[str], limit: int):
     core = {"TimeCreated_SystemTime", "Provider_Name", "EventID", "Computer", "Channel", "EventRecordID"}
     records: list[dict[str, Any]] = []
     for path in files:
+        before = len(records)
         try:
             with open(path, "rb") as fh:
                 for ev in evtx.Evtx(fh):
@@ -126,6 +134,9 @@ def _direct_evtx(files: list[str], limit: int):
                         return records, None
         except Exception as e:
             return records, f"EVTX 파싱 실패 '{path}': {e}"
+        if len(records) == before:
+            # 손상된 파일도 예외 없이 0건을 낸다. 0건은 '확인 불가'로 보고한다(적대적 리뷰 2026-11-03).
+            return records, f"EVTX 레코드 0건 '{path}' — 빈 로그인지 손상·미지원 형식인지 다른 도구로 확인할 것"
     return records, None
 
 
@@ -140,7 +151,7 @@ def run_dissect_query(target_path: str, artifact_type: str, limit: int = MAX_REC
         if artifact_type == "eventlogs":
             fb = _wevtutil_eventlogs(target_path, limit=limit)
             if fb is not None:
-                return fb, None
+                return fb
         return [], (
             "Dissect 프레임워크 미설치 — pip install dissect[full] 실행 후 재시도. "
             "이 상태에서는 레코드 0건조차 보고할 수 없다."
@@ -262,10 +273,11 @@ def main(argv=None):
     # 진행 로그는 stderr 로 — stdout 은 JSON 데이터 전용으로 유지한다.
     print(f"[*] Extracting artifact '{args.artifact}' from '{args.target}'...", file=sys.stderr)
     limit = max(1, args.limit)
-    data, error = run_dissect_query(args.target, args.artifact, limit=limit)
-    # 상한에 닿으면 더 있을 수 있다. count 를 전체 건수로 옮기지 않도록 표시한다
+    # 한 건 더 읽어 실제로 잘렸는지 판단한다. 딱 limit 건이면 잘린 것이 아니다(적대적 리뷰 2026-11-03).
     # (Windows QA 2026-11-02: App.evtx 19879건이 경고 없이 count 10000 으로 나왔다).
-    truncated = len(data) >= limit
+    data, error = run_dissect_query(args.target, args.artifact, limit=limit + 1)
+    truncated = len(data) > limit
+    data = data[:limit]
 
     output_json = {
         "target": args.target,

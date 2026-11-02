@@ -441,10 +441,26 @@ class AuditChainTests(unittest.TestCase):
         mod = load_module("parse_ntfs_artifacts", "scripts/parse_ntfs_artifacts.py")
         with tempfile.TemporaryDirectory() as td, mock.patch.dict(sys.modules, {"dissect.target": fake}):
             out = Path(td) / "o.json"
-            for limit, count, truncated in ((2, 2, True), (10, 3, False)):
+            # 딱 limit 건이면 잘린 것이 아니다(적대적 리뷰 2026-11-03)
+            for limit, count, truncated in ((2, 2, True), (3, 3, False), (10, 3, False)):
                 self.assertEqual(mod.main([td, "-a", "users", "--limit", str(limit), "-o", str(out)]), 0)
                 data = json.loads(out.read_text(encoding="utf-8"))
                 self.assertEqual((data["count"], data["limit"], data["truncated"]), (count, limit, truncated))
+
+    def test_ntfs_parser_reports_zero_evtx_records_as_error(self):
+        # 손상된 .evtx 가 'count 0, error null, exit 0' 으로 보고됐다(적대적 리뷰 2026-11-03)
+        import types
+        from unittest import mock
+
+        fake_target = types.ModuleType("dissect.target")
+        fake_target.Target = types.SimpleNamespace(open=lambda p: None)
+        fake_eventlog = types.ModuleType("dissect.eventlog")
+        fake_eventlog.evtx = types.SimpleNamespace(Evtx=lambda fh: iter(()))
+        mod = load_module("parse_ntfs_artifacts", "scripts/parse_ntfs_artifacts.py")
+        with tempfile.TemporaryDirectory() as td, mock.patch.dict(sys.modules, {"dissect.target": fake_target, "dissect.eventlog": fake_eventlog}):
+            bad = Path(td) / "corrupt.evtx"
+            bad.write_bytes(b"\x00" * 128)
+            self.assertEqual(mod.main([str(bad), "-a", "eventlogs", "-o", str(Path(td) / "o.json")]), 3)
 
     def test_check_tool_gate(self):
         import subprocess
