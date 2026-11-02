@@ -6,6 +6,8 @@
  * 실제 사례(2026-11-01): import 경로를 잘못 짚은 조회 실패를 "기능이 없다"로 보고했다.
  * 실패한 조회는 <workspace>/.lazyargon/lookups.jsonl 에 남고, stderr 의 "[LOOKUP GUARD] WARN" 을
  * post_tool_feedback.mjs wrap 이 다음 모델 호출 전에 주입한다. 항상 exit 0 · stdout {} (PostToolUse 계약).
+ * Stop 에서는 stop_claim_guard.mjs 가 이 가드를 한 번 더 부른다: 도구 하나가 실패하고 바로 답하며 끝난 턴은
+ * PostToolUse 시점에 그 출력이 아직 transcript 에 없어 기록이 빠졌다(Windows 실기 2026-11-03). 같은 step 은 한 번만 기록한다.
  */
 import fs from 'node:fs';
 import os from 'node:os';

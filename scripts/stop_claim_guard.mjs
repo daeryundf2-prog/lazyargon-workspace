@@ -49,9 +49,21 @@ const EVIDENCE_RE = new RegExp(
 	'i',
 );
 
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// 도구 하나가 실패하고 바로 답하며 끝난 턴은 PostToolUse 시점에 그 출력이 transcript 에 없어 조회 실패가
+// 기록되지 않았다(Windows 실기 2026-11-03). 턴이 끝난 이 시점에 lookup_guard 를 한 번 더 돌린다.
+// Stop 훅은 lazyargon hooks.json 한 곳에만 둔다는 규칙 때문에 별도 Stop 항목 대신 여기서 부른다.
+function recordFailedLookups(raw) {
+	const here = path.dirname(fileURLToPath(import.meta.url));
+	const guard = path.join(here, 'lookup_guard.mjs');
+	if (!fs.existsSync(guard)) return;
+	spawnSync(process.execPath, [path.join(here, 'post_tool_feedback.mjs'), 'wrap', process.execPath, guard], { input: raw, encoding: 'utf8', timeout: 4000 });
+}
 
 function readStdin(limitMs) {
 	return new Promise((resolve) => {
@@ -371,8 +383,9 @@ function emitBlock(payload, reason) {
 
 async function main() {
 	let payload;
+	let raw = '';
 	try {
-		const raw = await readStdin(2000);
+		raw = await readStdin(2000);
 		payload = JSON.parse(raw);
 	} catch {
 		process.stdout.write('{}\n');
@@ -382,6 +395,7 @@ async function main() {
 		process.stdout.write('{}\n');
 		process.exit(0);
 	}
+	recordFailedLookups(raw);
 	if (
 		payload.stop_hook_active === true ||
 		Number(payload.executionNum) >= 2 ||

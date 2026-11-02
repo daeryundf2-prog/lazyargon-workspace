@@ -317,6 +317,27 @@ def test_stop_claim_guard_numeric_self_check_only_on_report_turns(tmp_path, user
     assert ("observe_numeric" in modes) is (not checked), modes
 
 
+def test_stop_hook_records_lookup_that_failed_right_before_the_answer(tmp_path):
+    # Windows 실기 2026-11-03: read_file 실패 1회 후 바로 답하고 끝난 턴은 PostToolUse 시점에 출력이 없어 기록이 빠졌다.
+    # Stop 훅(stop_claim_guard)이 lookup_guard 를 한 번 더 불러, 턴이 끝난 뒤에는 기록되고 두 번 기록되지 않는지 본다.
+    steps = [{"type": "USER_INPUT", "step_index": 4, "content": "registry_parser.py 가 있는지 확인해"},
+             {"type": "PLANNER_RESPONSE", "step_index": 5, "tool_calls": [{"name": "read_file", "args": {"Path": "C:\\temp\\lazyqa\\registry_parser.py"}}]},
+             {"type": "GENERIC", "step_index": 6, "status": "ERROR", "error": "file does not exist",
+              "content": "Encountered error in step execution: file does not exist"},
+             {"type": "PLANNER_RESPONSE", "step_index": 7, "content": "C:\\temp\\lazyqa\\registry_parser.py 경로에 파일 없음"}]
+    tp = tmp_path / "transcript_full.jsonl"
+    tp.write_text("\n".join(json.dumps(s, ensure_ascii=False) for s in steps), encoding="utf-8")
+    payload = json.dumps({"conversationId": "stop1", "executionNum": 0, "fullyIdle": True, "terminationReason": "NO_TOOL_CALL",
+                          "transcriptPath": str(tp), "workspacePaths": [str(tmp_path)]})
+    env = {"LAZYARGON_FEEDBACK_DIR": str(tmp_path / "feedback")}
+    for _ in range(2):
+        proc = run_node_script("stop_claim_guard.mjs", stdin_payload=payload, env=env)
+        assert proc.returncode == 0 and proc.stdout.strip() == "{}", proc
+    rows = (tmp_path / ".lazyargon" / "lookups.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(rows) == 1 and json.loads(rows[0])["step"] == 6, rows
+    assert (tmp_path / "feedback" / "stop1.jsonl").exists()
+
+
 def test_lookup_guard_pairs_parallel_calls_with_their_outputs(tmp_path):
     # 한 응답의 두 호출: 두 번째(ls) 출력의 실패를 첫 호출(read_file) 탓으로 돌리지 않는다
     steps = [{"type": "USER_INPUT", "content": "q"},
