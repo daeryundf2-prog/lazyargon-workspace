@@ -261,12 +261,18 @@ def main(argv=None):
 
     # 진행 로그는 stderr 로 — stdout 은 JSON 데이터 전용으로 유지한다.
     print(f"[*] Extracting artifact '{args.artifact}' from '{args.target}'...", file=sys.stderr)
-    data, error = run_dissect_query(args.target, args.artifact, limit=max(1, args.limit))
+    limit = max(1, args.limit)
+    data, error = run_dissect_query(args.target, args.artifact, limit=limit)
+    # 상한에 닿으면 더 있을 수 있다. count 를 전체 건수로 옮기지 않도록 표시한다
+    # (Windows QA 2026-11-02: App.evtx 19879건이 경고 없이 count 10000 으로 나왔다).
+    truncated = len(data) >= limit
 
     output_json = {
         "target": args.target,
         "artifact": args.artifact,
         "count": len(data),
+        "limit": limit,
+        "truncated": truncated,
         "error": error,
         "extracted_at": datetime.now(timezone.utc).isoformat(),
         "records": data,
@@ -277,6 +283,9 @@ def main(argv=None):
         print(json.dumps(output_json, ensure_ascii=False, indent=2, default=str))
         print(f"[FAIL] {error}", file=sys.stderr)
         return 3
+
+    if truncated:
+        print(f"[WARN] 상한 {limit}건에 도달 — 전체 건수가 아니다. --limit 을 올려 다시 실행할 것", file=sys.stderr)
 
     if args.output:
         text = json.dumps(output_json, ensure_ascii=False, indent=2, default=str)

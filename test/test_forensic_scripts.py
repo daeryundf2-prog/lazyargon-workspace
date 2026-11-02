@@ -417,6 +417,35 @@ class AuditChainTests(unittest.TestCase):
                     self.assertEqual((rec["executable"], rec["run_count"], rec["linked_file_count"]), ("CALC.EXE", 2, 5))
                     self.assertEqual(rec["last_run"], "2016-01-11 22:08:20")
 
+    def test_ntfs_parser_marks_limit_reached(self):
+        # Windows QA 2026-11-02: App.evtx 19879건이 표시 없이 count 10000 으로 나왔다
+        import types
+        from unittest import mock
+
+        class Rec:
+            def __init__(self, **kw):
+                self.kw = kw
+
+            def _asdict(self):
+                return dict(self.kw)
+
+        class FakeTarget:
+            def users(self):
+                return [Rec(name=f"u{i}", home="C:\\Users\\u", sid="S") for i in range(3)]
+
+            def close(self):
+                pass
+
+        fake = types.ModuleType("dissect.target")
+        fake.Target = types.SimpleNamespace(open=lambda p: FakeTarget())
+        mod = load_module("parse_ntfs_artifacts", "scripts/parse_ntfs_artifacts.py")
+        with tempfile.TemporaryDirectory() as td, mock.patch.dict(sys.modules, {"dissect.target": fake}):
+            out = Path(td) / "o.json"
+            for limit, count, truncated in ((2, 2, True), (10, 3, False)):
+                self.assertEqual(mod.main([td, "-a", "users", "--limit", str(limit), "-o", str(out)]), 0)
+                data = json.loads(out.read_text(encoding="utf-8"))
+                self.assertEqual((data["count"], data["limit"], data["truncated"]), (count, limit, truncated))
+
     def test_check_tool_gate(self):
         import subprocess
         ok = subprocess.run(
