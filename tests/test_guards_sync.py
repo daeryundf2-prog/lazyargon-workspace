@@ -404,6 +404,28 @@ def test_stop_hook_records_lookup_that_failed_right_before_the_answer(tmp_path):
     assert not (tmp_path / "feedback" / "stop1.jsonl").exists()
 
 
+def test_selfcheck_stats_counts_corrected_and_passed_reasks(tmp_path):
+    # 되묻기 뒤 답이 고쳐졌는지('점검: 근거 있음'뿐인지) 종류별로 센다. 여러 PC 결과를 합쳐도 같은 되묻기는 한 번만 센다.
+    block = "Stop hook blocked termination: [SELF-CHECK v1.0.0] …\n점검할 문장:\n1. [{}] x"
+    conv = tmp_path / "brain" / "c1" / ".system_generated" / "logs"
+    conv.mkdir(parents=True)
+    steps = [{"type": "USER_INPUT", "step_index": 0, "content": "q"},
+             {"type": "PLANNER_RESPONSE", "step_index": 1, "content": "총 137건입니다."},
+             {"type": "SYSTEM_MESSAGE", "step_index": 2, "content": block.format("출처 없는 수치(137건)")},
+             {"type": "PLANNER_RESPONSE", "step_index": 3, "content": "건수는 미확인입니다."},
+             {"type": "SYSTEM_MESSAGE", "step_index": 4, "content": block.format("부재·불가 단정")},
+             {"type": "PLANNER_RESPONSE", "step_index": 5, "content": "점검: 근거 있음 — read_file 결과"}]
+    (conv / "transcript_full.jsonl").write_text("\n".join(json.dumps(s, ensure_ascii=False) for s in steps), encoding="utf-8")
+    out = tmp_path / "a.json"
+    proc = run_node_script("selfcheck_stats.mjs", args=("--brain", str(tmp_path / "brain"), "--out", str(out)))
+    assert proc.returncode == 0, proc.stderr
+    table = json.loads(out.read_text(encoding="utf-8"))["by_kind"]
+    assert table["출처 없는 수치"] == {"total": 1, "corrected": 1, "passed": 0, "unknown": 0}
+    assert table["부재·불가 단정"] == {"total": 1, "corrected": 0, "passed": 1, "unknown": 0}
+    merged = run_node_script("selfcheck_stats.mjs", args=("--merge", str(out), str(out)))
+    assert "되묻기 2건" in merged.stdout, merged.stdout
+
+
 def test_lookup_guard_pairs_parallel_calls_with_their_outputs(tmp_path):
     # 한 응답의 두 호출: 두 번째(ls) 출력의 실패를 첫 호출(read_file) 탓으로 돌리지 않는다
     steps = [{"type": "USER_INPUT", "content": "q"},
