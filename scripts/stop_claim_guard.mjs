@@ -221,6 +221,7 @@ function turnEvidence(content) {
 		searches: calls.filter((c) => /search_web|web_search|read_url/i.test(String(c.name || ''))).length,
 		runs: calls.filter((c) => RUN_CALL_RE.test(String(c.name || ''))).length,
 		args: JSON.stringify(calls.map((c) => c.args ?? c.arguments ?? c.input ?? '')),
+		cmdArgs: JSON.stringify(calls.filter((c) => RUN_CALL_RE.test(String(c.name || ''))).map((c) => c.args ?? c.arguments ?? c.input ?? '')),
 		names: calls.map((c) => String(c.name || '')),
 		// PowerShell Test-Path 는 없는 경로에 exit 0 + 'False' 만 남긴다(Windows QA, 2026-11-02).
 		failed: outs.filter((o) => LOOKUP_FAIL_RE.test(o)).length + (calls.some((c) => /Test-Path/i.test(JSON.stringify(c.args ?? ''))) && outs.some((o) => /(?:^|\n)\s*False\s*(?:\r?\n|$)/.test(o)) ? 1 : 0),
@@ -315,8 +316,11 @@ function riskySentences(message, ev = null) {
 				}
 				// 줄 수(wc -l, 'N lines')를 줄이 아닌 이름(건·명·회)으로 쓴 경우.
 				// ls·find 출력을 wc -l 로 센 것은 항목(파일) 수다. 실세션(2026-11-01): 'ls *.py | wc -l' → '.py 파일 3개' 오탐.
-				const entryCount = /\b(?:ls|find|fd|grep\s+-[a-zA-Z]*l[a-zA-Z]*)\b[^|\n]*\|\s*wc\s+-l/.test(ev.args);
-				const lineCount = (!entryCount && /wc\s+-l/.test(ev.args)) || new RegExp(`^\\s*${digits}\\s+lines?\\b`, 'im').test(ev.outputs); // read_file 머리글·코드 속 'lines' 는 줄 수 출력이 아니다
+				// write_file/edit_file 마크다운 본문에 적힌 `wc -l` 문구가 다른 숫자를 오탐하지 않도록 셸 명령 인자(cmdArgs)와 출력 줄만 대조한다.
+				const cmdArgs = ev.cmdArgs ?? ev.args ?? '';
+				const entryCount = /\b(?:ls|find|fd|grep\s+-[a-zA-Z]*l[a-zA-Z]*)\b[^|\n]*\|\s*wc\s+-l/.test(cmdArgs);
+				const wcLineOut = !entryCount && /wc\s+-l/.test(cmdArgs) && new RegExp(`(?:^|\\n)\\s*${digits}(?:\\s+\\S+)?\\s*(?:\\r?\\n|$)`).test(ev.outputs);
+				const lineCount = wcLineOut || new RegExp(`^\\s*${digits}\\s+lines?\\b`, 'im').test(ev.outputs); // read_file 머리글·코드 속 'lines' 는 줄 수 출력이 아니다
 				if (lineCount && !/^(?:줄|lines?)$/i.test(m[2])) {
 					hit = { kind: `줄 수를 다른 이름으로 쓴 수치(${m[0]})` };
 					break;

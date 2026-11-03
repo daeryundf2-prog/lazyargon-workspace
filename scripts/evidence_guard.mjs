@@ -471,8 +471,8 @@ function isProtectedName(token) {
 	return false;
 }
 // evidence 를 경로 세그먼트로 포함하는 토큰 (cp x evidence/ 같은 상대 경로 쓰기 포함).
-// evidence_note.md 처럼 evidence 로 시작하는 다른 이름은 세그먼트가 아니므로 통과.
-const EVIDENCE_SEGMENT_RE = /^(?:.*[\/\\])?evidence(?:[\/\\].*)?$/i;
+// evidence_note.md 나 커밋 메시지 속 일반 영단어 evidence(경로 구분자 없음)는 통과시킨다.
+const EVIDENCE_SEGMENT_RE = /^(?:.*[\/\\]evidence(?:[\/\\].*)?|evidence[\/\\].*)$/i;
 const PROTECTED_PATTERNS = [
 	{ re: /(^|\/|\\)evidence(\/|\\|$)/i, label: 'evidence directory' },
 	{ re: /\$mft/i, label: '$MFT' },
@@ -489,9 +489,11 @@ const INLINE_EXEC_RES = [
 	/\b(?:powershell|pwsh)(?:\.exe)?\b[^|&;\n]*\s-(?:e|ec|en\w*)(?=\s|$)/i,
 ];
 
-// heredoc 본문(cat << 'EOF' > out.py … EOF)은 쓰기 대상이 아니라 쓰는 내용이다. 첫 줄(대상 포함)만 검사한다.
+// heredoc 본문(cat << 'EOF' > out.py … EOF)과 git commit -m "…" 메시지는 쓰기 대상 경로가 아니라 문자열 내용이다.
 function stripHeredocBodies(text) {
-	return text.replace(/(<<-?\s*['"]?(\w+)['"]?[^\n]*)\n[\s\S]*?\n\2[ \t]*(?=\n|$)/g, '$1');
+	return text
+		.replace(/(<<-?\s*['"]?(\w+)['"]?[^\n]*)\n[\s\S]*?\n\2[ \t]*(?=\n|$)/g, '$1')
+		.replace(/(\bgit\b[^\n;|&]*?\bcommit\b[^\n;|&]*?)(?:\s+(?:-m|--message)(?:\s+|=)(?:"[^"]*"|'[^']*'))+/gi, '$1');
 }
 
 function findViolation(rawTexts) {

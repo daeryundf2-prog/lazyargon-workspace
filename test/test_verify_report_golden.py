@@ -13,9 +13,14 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
+import unittest
 from pathlib import Path
 
-import pytest
+try:
+    import pytest
+except ImportError:  # pragma: no cover - unittest fallback when pytest is absent
+    pytest = None
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "verify_report.py"
@@ -183,7 +188,13 @@ def _cases(tmp: Path) -> dict[str, dict]:
     }
 
 
-@pytest.mark.parametrize("name", sorted(_cases(Path("."))))
+def _Parametrize(argnames: str, argvalues: list[str]):
+    if pytest is not None:
+        return pytest.mark.parametrize(argnames, argvalues)
+    return lambda fn: fn
+
+
+@_Parametrize("name", sorted(_cases(Path("."))))
 def test_verify_report_golden_snapshot(tmp_path: Path, name: str) -> None:
     case = _cases(tmp_path)[name]
     for fname, content in (case.get("files") or {}).items():
@@ -204,7 +215,9 @@ def test_verify_report_golden_snapshot(tmp_path: Path, name: str) -> None:
         goldens = json.loads(FIXTURE.read_text(encoding="utf-8")) if FIXTURE.exists() else {}
         goldens[name] = blob
         FIXTURE.write_text(json.dumps(goldens, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        pytest.skip("regenerating golden fixture")
+        if pytest is not None:
+            pytest.skip("regenerating golden fixture")
+        return
 
     goldens = json.loads(FIXTURE.read_text(encoding="utf-8"))
     assert name in goldens, f"golden snapshot missing for {name}"
@@ -213,3 +226,14 @@ def test_verify_report_golden_snapshot(tmp_path: Path, name: str) -> None:
         f"의도된 동작 변경이면 REGEN_GOLDEN=1 로 재생성하라.\n"
         f"--- actual ---\nexit={blob['exit']}\nstdout={blob['stdout']}\nstderr={blob['stderr']}"
     )
+
+
+class VerifyReportGoldenSnapshotTest(unittest.TestCase):
+    def test_all_golden_snapshots(self) -> None:
+        for name in sorted(_cases(Path("."))):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                test_verify_report_golden_snapshot(Path(tmp), name)
+
+
+if __name__ == "__main__":
+    unittest.main()

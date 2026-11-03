@@ -502,9 +502,28 @@ def main(argv=None):
                 calculate_forensic_grounding = None
 
         if calculate_forensic_grounding is not None:
+            def _read_ev_for_morph(ep_str: str) -> str:
+                p = Path(ep_str)
+                if not p.is_file():
+                    return ""
+                raw = p.read_text(encoding="utf-8", errors="replace")
+                if p.name == "audit_trail.jsonl" and len(raw) > 16_384:
+                    seen: set[str] = set()
+                    compact: list[str] = []
+                    for ln in raw.splitlines()[-200:]:
+                        try:
+                            obj = json.loads(ln)
+                            entry = f"{obj.get('file') or obj.get('path') or ''} {obj.get('sha256') or ''}".strip()
+                        except Exception:
+                            entry = ln[:200]
+                        if entry and entry not in seen:
+                            seen.add(entry)
+                            compact.append(entry)
+                    return "\n".join(compact)
+                return raw
+
             combined_ev = "\n".join(
-                Path(ep).read_text(encoding="utf-8", errors="replace")
-                for ep in args.evidence if Path(ep).is_file()
+                _read_ev_for_morph(ep) for ep in args.evidence if Path(ep).is_file()
             )
             # 원본 자료 텍스트도 근거로 본다. audit.json 만 보면 원본에 있는 화자 이름까지 '증거에 없는 용어'로
             # 경고했다(실세션 2026-11-01: '김민수', '금액').

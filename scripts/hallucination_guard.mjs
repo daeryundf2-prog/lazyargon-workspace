@@ -400,10 +400,15 @@ function readSamples(targetFile) {
 function isPluginInternalDoc(targetFile) {
 	try {
 		const abs = path.resolve(targetFile);
-		const rootAbs = path.resolve(root);
-		if (!abs.startsWith(rootAbs + path.sep)) return false;
-		const rel = path.relative(rootAbs, abs).replace(/\\/g, '/');
-		return /^(AGENTS\.md|GEMINI\.md|README\.md|CLAUDE\.md|CHARTER\.md|NOTICE|rules\/|docs\/|skills\/|agents\/|templates\/|contracts\/)/.test(rel);
+		const pluginsDir = path.dirname(path.resolve(root));
+		for (const pRoot of [path.resolve(root), path.join(pluginsDir, 'lazyargon'), path.join(pluginsDir, 'lazyagentic')]) {
+			if (!abs.startsWith(pRoot + path.sep)) continue;
+			const rel = path.relative(pRoot, abs).replace(/\\/g, '/');
+			if (/^(AGENTS\.md|GEMINI\.md|RULES\.md|_entry\.md|README\.md|CLAUDE\.md|CHARTER\.md|NOTICE|rules\/|docs\/|skills\/|agents\/|templates\/|contracts\/|enforced\/)/.test(rel)) {
+				return true;
+			}
+		}
+		return false;
 	} catch {
 		return false;
 	}
@@ -475,18 +480,27 @@ function ledgerCandidate(targetFile) {
 	return candidates.find((p) => fs.existsSync(p));
 }
 
-// evidence 자동 탐색: audit.json 3곳 + 이 플러그인 자신이 기록하는 감사 로그
+// evidence 자동 탐색: 보고서 디렉터리·현재 작업 디렉터리 우선, 없을 때만 플러그인 루트 폴백
 function evidenceCandidates(targetFile) {
 	const dir = path.dirname(path.resolve(targetFile));
-	const candidates = [
+	const seen = new Set();
+	const dedup = (arr) => arr.filter((p) => {
+		const res = path.resolve(p);
+		if (seen.has(res) || !fs.existsSync(p)) return false;
+		seen.add(res);
+		return true;
+	});
+	const local = dedup([
 		join(dir, 'audit.json'),
 		join(dir, '.lazyforensic', 'audit_trail.jsonl'),
 		join(process.cwd(), 'audit.json'),
 		join(process.cwd(), '.lazyforensic', 'audit_trail.jsonl'),
+	]);
+	if (local.length > 0) return local;
+	return dedup([
 		join(root, 'audit.json'),
 		join(root, '.lazyforensic', 'audit_trail.jsonl'),
-	];
-	return candidates.filter((p) => fs.existsSync(p));
+	]);
 }
 
 // 원본 자료 자동 탐색: 보고서 옆 자료 폴더(카톡·녹취·OCR 텍스트, 첨부 파일, 분석 산출물). 인용·첨부 대조 근거다.

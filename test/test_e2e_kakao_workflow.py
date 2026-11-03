@@ -10,9 +10,14 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import tempfile
+import unittest
 from pathlib import Path
 
-import pytest
+try:
+    import pytest
+except ImportError:  # pragma: no cover - unittest fallback when pytest is absent
+    pytest = None
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = ROOT / "test" / "fixtures"
@@ -33,13 +38,21 @@ def _run(script: Path, *args: str, cwd: Path | None = None) -> subprocess.Comple
     )
 
 
-@pytest.mark.parametrize("fixture", ["kakao_mobile.txt", "kakao_pc.txt"])
+def _Parametrize(argnames: str, argvalues: list[str]):
+    if pytest is not None:
+        return pytest.mark.parametrize(argnames, argvalues)
+    return lambda fn: fn
+
+
+@_Parametrize("fixture", ["kakao_mobile.txt", "kakao_pc.txt"])
 def test_kakao_five_minute_workflow(tmp_path: Path, fixture: str) -> None:
     case = tmp_path / "case"
     case.mkdir()
     src = FIXTURES / fixture
     if not src.exists():
-        pytest.skip(f"fixture missing: {fixture}")
+        if pytest is not None:
+            pytest.skip(f"fixture missing: {fixture}")
+        return
     target = case / fixture
     target.write_bytes(src.read_bytes())
 
@@ -90,3 +103,14 @@ def test_kakao_five_minute_workflow(tmp_path: Path, fixture: str) -> None:
     assert r.returncode == 1
     verdict = json.loads(r.stdout)
     assert any("근거 없는 해시" in e for e in verdict["errors"])
+
+
+class KakaoFiveMinuteWorkflowTest(unittest.TestCase):
+    def test_kakao_mobile_and_pc_workflows(self) -> None:
+        for fixture in ("kakao_mobile.txt", "kakao_pc.txt"):
+            with self.subTest(fixture=fixture), tempfile.TemporaryDirectory() as tmp:
+                test_kakao_five_minute_workflow(Path(tmp), fixture)
+
+
+if __name__ == "__main__":
+    unittest.main()
