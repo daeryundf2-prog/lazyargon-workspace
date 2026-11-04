@@ -7,7 +7,7 @@
     "name": "daeryundf2-prog",
     "url": "https://github.com/daeryundf2-prog"
   },
-  "license": "MIT",
+  "license": "UNLICENSED",
   "hooks": "./hooks.json",
   "mcpServers": "./mcp_config.json",
   "pythonDependencies": "./requirements.txt",
