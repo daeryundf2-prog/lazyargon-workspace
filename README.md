@@ -1,6 +1,5 @@
 # LazyForensic (v1.0.5)
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Node 18+](https://img.shields.io/badge/Node-18%2B-brightgreen.svg?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Integrity: Fail-Closed](https://img.shields.io/badge/Integrity-Fail--Closed-red.svg?style=flat-square)](docs/GAPS.md)
@@ -225,7 +224,7 @@ CI 워크플로: Ubuntu/Windows 유닛 테스트 + 훅 가드 단언, korean-law
 
 ## 라이선스
 
-본 레포 코드는 MIT ([`LICENSE`](LICENSE)). 한국 법령 MCP 서버는 별도 레포
+본 레포 코드: All rights reserved. © 법무법인(유한) 대륜. 무단 사용·복제·배포를 금합니다. 한국 법령 MCP 서버는 별도 레포
 [`daeryundf2-prog/korean-law-mcp`](https://github.com/daeryundf2-prog/korean-law-mcp)로 분리되어 있고
 동일하게 MIT다 ([`NOTICE`](NOTICE)). `node scripts/setup_korean_law.mjs`가 최초 실행 시
 해당 레포를 `./korean-law-mcp/`로 클론해 빌드한다. 무라이선스 제3자 디자인 카탈로그
