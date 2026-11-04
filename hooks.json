@@ -37,6 +37,11 @@
             "type": "command",
             "command": "node ./scripts/post_tool_feedback.mjs wrap node ./scripts/legal_factuality_guard.mjs",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node ./scripts/post_tool_feedback.mjs wrap node ./scripts/slop_guard.mjs",
+            "timeout": 5
           }
         ]
       },

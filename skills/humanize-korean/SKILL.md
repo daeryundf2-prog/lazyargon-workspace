@@ -230,6 +230,16 @@ exit code로 분기한다 (0/1/2/3 의미는 기존 게이트와 동일):
 | "2차 윤문"·"`/humanize-redo`" | 기존 run_id의 `final.md`를 새 입력으로 heavy P1부터 재실행 |
 | "윤문 강도 조정" | heavy 경로, 진단의 지배 패턴 개수(3~6)를 늘리거나 줄여 재실행 |
 | "장르 바꿔서" | `genre` 변경 후 Phase 1부터 재실행 (경로는 route_hint 재판정) |
+| "표시된 줄만"·`[SLOP GUARD] WARN` 제안 수락 | **구간 지정 모드**(아래) |
+
+### 구간 지정 모드 (slop_guard 연동)
+
+`${PLUGIN_ROOT}/scripts/slop_guard.mjs`가 보고서 파일에서 짚은 줄만 고친다. 자동으로 시작하지 않고, 사용자가 제안을 수락했을 때만 돌린다.
+
+1. `node ${PLUGIN_ROOT}/scripts/slop_guard.mjs --file <보고서>`로 대상 줄 번호와 패턴을 다시 얻는다.
+2. 그 줄의 문장만 light 경로로 윤문한다. 다른 줄은 한 글자도 바꾸지 않는다.
+3. 인용부호 안·표 행·수치·고유명사·날짜는 제외한다(철칙 #1). 대상 줄에 이것만 있으면 고치지 않고 넣어간다.
+4. `verify_change_rate.py --before <원본> --after <결과>`로 변경률을 잰고, `slop_guard.mjs --file`를 다시 돌려 표시가 줄었는지 보고한다.
 
 ## 옵션 (인자 끝에 자연어로)
 

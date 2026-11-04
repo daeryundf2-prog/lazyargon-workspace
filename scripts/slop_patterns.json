@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "note": "AI 슬롭 패턴 원본. weight 2 = 코퍼스 측정 근거, 1 = 편집자 관찰 목록. 역신호(~를 통해, ~것이다, 괄호)는 사람이 더 많이 써서 넣지 않는다(humanize-korean/references/empirical-validation.md). 출처: ai-tell-taxonomy.md, https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing, https://arxiv.org/abs/2510.15061",
+  "patterns": [
+    { "id": "ko-negative-parallel", "lang": "ko", "weight": 2, "re": "[가-힣A-Za-z0-9]+(?:이|가)\\s*아니라\\s", "label": "부정 대구 'A가 아니라 B' (AI 9.2배, empirical-validation.md)" },
+    { "id": "ko-double-passive", "lang": "ko", "weight": 1, "re": "되어(?:지|진|져)", "label": "이중 피동 (되어진다)" },
+    { "id": "ko-by-passive", "lang": "ko", "weight": 1, "re": "에\\s*의(?:해|하여)\\s", "label": "'~에 의해' 피동" },
+    { "id": "ko-e-isseo", "lang": "ko", "weight": 1, "re": "에\\s*있어(?:서)?\\s", "label": "번역투 '~에 있어서'" },
+    { "id": "ko-gajigo", "lang": "ko", "weight": 1, "re": "(?:을|를)\\s*가지고\\s*있", "label": "번역투 '~을 가지고 있다'" },
+    { "id": "ko-wrapup", "lang": "ko", "weight": 1, "re": "결론적으로|요약하자면|종합해\\s*보면", "label": "요약 상투구" },
+    { "id": "ko-closing-formula", "lang": "ko", "weight": 1, "re": "(?:할|해야\\s*할)\\s*(?:때|시점)입니다", "label": "완결 공식 '~할 때입니다'" },
+    { "id": "ko-hype", "lang": "ko", "weight": 1, "re": "압도적|혁신적인|획기적인|게임\\s*체인저|패러다임\\s*전환", "label": "과장어" },
+    { "id": "ko-cliche", "lang": "ko", "weight": 1, "re": "매우\\s*중요|핵심적인|빠르게\\s*변화하는|눈에\\s*띄게", "label": "AI 클리셰 (lazyagentic lint-rules)" },
+    { "id": "ko-chatbot-closer", "lang": "ko", "weight": 2, "re": "도움이\\s*되셨(?:기를|길)\\s*바랍니다|더\\s*궁금한\\s*점이\\s*있으시면", "label": "챗봇 인사말 흔적" },
+    { "id": "en-delve", "lang": "en", "weight": 2, "re": "\\bdelv(?:e|es|ed|ing)\\b", "label": "'delve' (초과 어휘 측정)" },
+    { "id": "en-testament", "lang": "en", "weight": 1, "re": "\\b(?:stands as )?a testament to\\b", "label": "'a testament to'" },
+    { "id": "en-tapestry", "lang": "en", "weight": 1, "re": "\\btapestr(?:y|ies)\\b", "label": "'tapestry'" },
+    { "id": "en-pivotal", "lang": "en", "weight": 1, "re": "\\bpivotal (?:role|moment|step)\\b", "label": "'pivotal role'" },
+    { "id": "en-worth-noting", "lang": "en", "weight": 1, "re": "\\bit(?:'s| is) (?:important|worth) (?:to note|noting)\\b", "label": "'it's important to note'" },
+    { "id": "en-not-just", "lang": "en", "weight": 1, "re": "\\bnot (?:just|only) [^.;]{1,40}?(?:,|;)? (?:but|it'?s)\\b", "label": "'not just X, but Y'" },
+    { "id": "en-wrapup", "lang": "en", "weight": 1, "re": "^\\s*(?:In conclusion|In summary|Overall),", "label": "요약 상투구 (In conclusion)" },
+    { "id": "en-underscore", "lang": "en", "weight": 1, "re": "\\bunderscor(?:e|es|ing) the (?:importance|need|significance)\\b", "label": "'underscores the importance'" },
+    { "id": "en-landscape", "lang": "en", "weight": 1, "re": "\\b(?:ever-evolving|rapidly evolving|evolving) landscape\\b", "label": "'evolving landscape'" },
+    { "id": "en-ai-words", "lang": "en", "weight": 1, "re": "\\b(?:meticulous(?:ly)?|intricate|realm|showcas(?:e|es|ing))\\b", "label": "AI 과용 어휘" },
+    { "id": "en-sycophant", "lang": "en", "weight": 2, "re": "\\b(?:Great question|Certainly!|Absolutely!|Would you like me to)\\b", "label": "챗봇 응대 문구" },
+    { "id": "artifact-utm", "lang": "any", "weight": 3, "re": "utm_source=chatgpt\\.com", "label": "ChatGPT 링크 흔적" },
+    { "id": "artifact-cutoff", "lang": "any", "weight": 3, "re": "As of my last (?:knowledge )?update|as an AI language model", "label": "모델 지식 시점·자기소개 흔적" }
+  ],
+  "em_dash_per_1000": 3
+}
