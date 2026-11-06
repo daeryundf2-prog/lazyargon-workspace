@@ -23,7 +23,7 @@ OpenCode `task(...)`, `model_tier`, `subagent_type`, Cursor `Task`, `view_file`�
 
 ## `invoke_subagent` 계약
 
-스키마와 프롬프트 형식(TASK / DELIVERABLE / SCOPE / VERIFY / STOP / RETURN / WRITE / ROLE ENVELOPE)은 `docs/antigravity-tools.md` 한 곳에만 둔다(규칙 파일 예산 초과 `#1254` 방지). 레인 힌트는 `hostEnforced=false`이며 기본값은 `lazyargon/rules/AGENTS.md`를 따른다(`flash`: 탐색·파싱·초안 골격, `inherit`: 본문·법률·검증, `flash_lite`: 긴급 쿼터 폴백). 팬아웃 전 `예산: <N> 레인 / <M> 웨이브`(기본 4레인/2웨이브 상한)를 선언하고, 종료 조건(동일 도구 3회·호출 40회·무진척 2턴 → UNKNOWN), 반환 상한(≤40줄), 승인 도구(`run_command` 등) 단일 호출 규칙(`#1249`)을 지킨다. 호스트 `modelName`이 다르지 않으면 자식 모델이 바뀌었다고 말하지 않는다.
+스키마와 프롬프트 형식(TASK / DELIVERABLE / SCOPE / VERIFY / STOP / RETURN / WRITE / ROLE ENVELOPE)은 `docs/antigravity-tools.md` 한 곳에만 둔다(규칙 파일 예산 초과 `#1254` 방지). `invoke_subagent`는 최상위 `{ TypeName, Role, Model, Prompt, Workspace? }` 평면 객체만 쓰며 `Subagents` 배열·`toolAction` 래퍼를 금지한다(`}}}}` 루프 방지). 레인 힌트는 `hostEnforced=false`이며 기본값은 `lazyargon/rules/AGENTS.md`를 따른다(`flash`: 탐색·파싱·초안 골격, `inherit`: 본문·법률·검증, `flash_lite`: 긴급 쿼터 폴백). 팬아웃 전 `예산: <N> 레인 / <M> 웨이브`(기본 4레인/2웨이브 상한)를 선언하고, 종료 조건(동일 도구 3회·호출 40회·무진척 2턴 → UNKNOWN), 반환 상한(≤40줄), 승인 도구(`run_command` 등) 단일 호출 규칙(`#1249`)을 지킨다. 호스트 `modelName`이 다르지 않으면 자식 모델이 바뀌었다고 말하지 않는다.
 
 ## 실패 폐쇄 (할루시네이션 차단 — 최우선)
 

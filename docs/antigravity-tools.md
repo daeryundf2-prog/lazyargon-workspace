@@ -16,7 +16,7 @@ In API-key mode (`modelProvider: "gemini"`), `agy` silently falls back to Gemini
 | --- | --- |
 | Explore / parse / draft / QA / review | `invoke_subagent` with TASK / DELIVERABLE / SCOPE / VERIFY / STOP / RETURN |
 | Role envelope | `mayFinalizeRun=false`, `mayModifyGlobalRunState=false`, `mustReturn=SubagentResultEnvelope`, `requiresParentAck=true` |
-| Child model hint (`canTierRoute`, not host-enforced) | `Subagents[].Model`: `flash` (parse/extract/draft skeleton/UI), `inherit` (report body, legal draft, verdict), `pro` (verify claims vs script output when the session is not Argon), `flash_lite` (tiny chores under quota pressure) |
+| Child model hint (`canTierRoute`, not host-enforced) | `Model`: `flash` (parse/extract/draft skeleton/UI), `inherit` (report body, legal draft, verdict), `pro` (verify claims vs script output when the session is not Argon), `flash_lite` (tiny chores under quota pressure) |
 | Budget | One line before any fan-out: `예산: <N> 레인 / <M> 웨이브`. Default cap 4 lanes / 2 waves |
 | Read files / extracted frames | host `Read`; do not invent `view_file` |
 | Edit | host `Write` / `Edit`, in chunks of ≤100 lines and <20KB per call, then re-read the written region |
@@ -24,15 +24,14 @@ In API-key mode (`modelProvider: "gemini"`), `agy` silently falls back to Gemini
 
 ## Canonical `invoke_subagent` shape
 
-Live Antigravity schema: top-level `Subagents`, `toolAction`, `toolSummary`; item `TypeName`, `Role`, `Model`, `Prompt`, `Workspace`. `Model` enum: `inherit` | `flash_lite` | `flash` | `pro`. There is **no** `model_tier` field and no thinking-level field (thinking level is session-scoped).
+Live Antigravity schema is a **flat top-level object**: `TypeName`, `Role`, `Model`, `Prompt`, `Workspace` (optional). `Model` enum: `inherit` | `flash_lite` | `flash` | `pro`. Do **not** wrap entries in a `Subagents: [...]` array or pass `toolAction` / `toolSummary` inside `invoke_subagent` (doing so breaks constrained JSON decoding with `}}}}` repetition loops). To fan out in parallel, emit multiple flat `invoke_subagent` tool calls in the same turn. There is **no** `model_tier` field and no thinking-level field (thinking level is session-scoped).
 
 ```
-invoke_subagent(
-  Subagents=[{
-    TypeName: "self",
-    Role: "<short-role>",
-    Model: "flash",
-    Prompt: """
+invoke_subagent({
+  TypeName: "self",
+  Role: "<short-role>",
+  Model: "flash",
+  Prompt: """
 TASK: <imperative assignment — name the full set of files/cases to cover>
 DELIVERABLE: <exact artifact or verdict>
 SCOPE: <paths / constraints — no duplicate implementations, no edits outside scope>
@@ -43,10 +42,7 @@ WRITE: ≤100-line / <20KB chunks; re-read each written region
 TOOLS: approval-gated tools (run_command, …) one per turn, never mixed with other calls
 ROLE ENVELOPE: mayFinalizeRun=false; mayModifyGlobalRunState=false; mustReturn=SubagentResultEnvelope; requiresParentAck=true
 """
-  }],
-  toolAction: "Invoking <role> subagent",
-  toolSummary: "<one-line summary>"
-)
+})
 ```
 
 `Workspace` is optional. A lane that returns `UNKNOWN` or fails is retried once with the same prompt, then recorded as unresolved and excluded from synthesis. On a Claude 5.5 session use `Model: "inherit"` only for the single final-verdict lane (Claude quota is scarce on Ultra). Passing `Model` is an agent hint (`hostEnforced=false`).
