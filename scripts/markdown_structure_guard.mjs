@@ -26,7 +26,7 @@ const READ_CAP_BYTES = 2 * 1024 * 1024;
 // 입력 수집 (hallucination_guard.mjs 와 동일 규약)
 // ---------------------------------------------------------------------------
 
-function readStdin(limitMs) {
+function readStdin(limitMs = 1500) {
 	return new Promise((resolve) => {
 		if (stdin.isTTY) {
 			resolve('');
@@ -38,11 +38,22 @@ function readStdin(limitMs) {
 			if (settled) return;
 			settled = true;
 			clearTimeout(timer);
+			try { stdin.pause(); } catch {}
 			stdin.removeAllListeners();
 			resolve(value);
 		};
 		const timer = setTimeout(() => finish(Buffer.concat(chunks).toString('utf8')), limitMs);
-		stdin.on('data', (chunk) => chunks.push(chunk));
+		if (typeof timer.unref === 'function') timer.unref();
+		stdin.on('data', (chunk) => {
+			chunks.push(chunk);
+			const acc = Buffer.concat(chunks).toString('utf8').trim();
+			if ((acc.startsWith('{') && acc.endsWith('}')) || (acc.startsWith('[') && acc.endsWith(']'))) {
+				try {
+					JSON.parse(acc);
+					finish(acc);
+				} catch {}
+			}
+		});
 		stdin.on('end', () => finish(Buffer.concat(chunks).toString('utf8')));
 		stdin.on('error', () => finish(''));
 	});
@@ -191,9 +202,13 @@ function extractToolDataFromCall(tc) {
 	return { toolName, targetFile, codeContent, commandLine };
 }
 
-function readTailLines(filePath, maxLines = 50, maxBytes = 512 * 1024) {
+const TAIL_FALLBACK_BYTES = 512 * 1024;
+const ANY_REDIRECT_RE = /(?:>|>>)\s*([^\s|&;"'`]+\.[a-z0-9]{1,10})\b/i;
+
+function readTailLines(filePath, maxLines = 50, maxBytes = 32 * 1024) {
 	const stat = fs.statSync(filePath);
 	let text;
+	let complete = true;
 	if (stat.size <= maxBytes) {
 		text = fs.readFileSync(filePath, 'utf8');
 	} else {
@@ -202,12 +217,21 @@ function readTailLines(filePath, maxLines = 50, maxBytes = 512 * 1024) {
 			const buf = Buffer.allocUnsafe(maxBytes);
 			fs.readSync(fd, buf, 0, maxBytes, stat.size - maxBytes);
 			const nlIdx = buf.indexOf(0x0a);
+			complete = nlIdx >= 0 && nlIdx < maxBytes - 1;
 			text = (nlIdx >= 0 ? buf.subarray(nlIdx + 1) : buf).toString('utf8');
 		} finally {
 			fs.closeSync(fd);
 		}
 	}
-	return text.split(/\r?\n/).filter((l) => l.trim().length > 0).slice(-maxLines).reverse();
+	const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+	const hasValidStep = lines.some((l) => {
+		const s = tryParseJson(l);
+		return Boolean(s && (s.tool_calls || s.toolCalls || s.toolCall || s.type === 'PLANNER_RESPONSE'));
+	});
+	if ((!complete || lines.length === 0 || !hasValidStep) && stat.size > maxBytes && maxBytes < TAIL_FALLBACK_BYTES) {
+		return readTailLines(filePath, maxLines, TAIL_FALLBACK_BYTES);
+	}
+	return lines.slice(-maxLines).reverse();
 }
 
 export function extractFromTranscript(payloadOrPath) {
@@ -315,23 +339,27 @@ export function extractTarget(sourcesOrPayload) {
 		extractTargetFromNode(s.parsed, found);
 		for (const { value, isCommand } of found) {
 			const u = unquoteTranscriptVal(value);
-			if (!isCommand) return u;
-			const red = u.match(REDIRECT_RE);
-			if (red) return red[1];
-			const m = u.match(PATH_LIKE_RE);
-			if (m) return m[1];
-		}
-		if (s.parsed && typeof s.parsed === 'object' && (s.parsed.transcriptPath || s.parsed.transcript_path || s.parsed.artifactDirectoryPath || s.parsed.artifact_directory_path)) {
-			const fromTranscript = extractTargetFromTranscript(s.parsed);
-			if (fromTranscript) return fromTranscript;
+			if (!isCommand && u) return u;
+			if (isCommand && u) {
+				const red = u.match(REDIRECT_RE) || u.match(ANY_REDIRECT_RE);
+				if (red) return red[1];
+				const m = u.match(PATH_LIKE_RE);
+				if (m) return m[1];
+			}
 		}
 	}
 	for (const s of sources) {
 		if (s.parsed !== undefined) continue;
-		const red = s.text.match(REDIRECT_RE);
+		const red = s.text.match(REDIRECT_RE) || s.text.match(ANY_REDIRECT_RE);
 		if (red) return red[1];
 		const m = s.text.match(PATH_LIKE_RE);
 		if (m) return m[1];
+	}
+	for (const s of sources) {
+		if (s.parsed && typeof s.parsed === 'object' && (s.parsed.transcriptPath || s.parsed.transcript_path || s.parsed.artifactDirectoryPath || s.parsed.artifact_directory_path)) {
+			const fromTranscript = extractTargetFromTranscript(s.parsed);
+			if (fromTranscript) return fromTranscript;
+		}
 	}
 	return '';
 }
@@ -575,7 +603,7 @@ function checkMode(paths) {
 		if (fs.existsSync(p) && fs.statSync(p).isDirectory()) {
 			const walk = (dir) => {
 				for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-					if (entry.name === 'node_modules' || entry.name === '.git') continue;
+					if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === '.venv' || entry.name === 'venv' || entry.name === '__pycache__') continue;
 					const full = path.join(dir, entry.name);
 					if (entry.isDirectory()) walk(full);
 					else if (/\.md$/i.test(entry.name)) files.push(full);

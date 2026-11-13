@@ -17,20 +17,24 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const BLOCK_RE = /Stop hook blocked termination:\s*\[SELF-CHECK/;
 const KIND_LINE_RE = /^\s*\d+\.\s*\[([^\]]+)\]/gm;
 const PASS_LINE_RE = /^\s*점검\s*:\s*근거\s*있음/;
+const CORRECTION_RE = /정정|수정합니다|다시\s*확인|아닙니다|오류였/;
 
 function arg(name) {
 	const i = process.argv.indexOf(name);
 	return i >= 0 ? process.argv[i + 1] : undefined;
 }
 
-function outcomeOf(answer) {
+export function outcomeOf(answer) {
 	const lines = String(answer || '').split('\n').map((l) => l.trim()).filter(Boolean);
 	if (!lines.length) return 'unknown';
-	return lines.every((l) => PASS_LINE_RE.test(l)) ? 'passed' : 'corrected';
+	if (lines.every((l) => PASS_LINE_RE.test(l))) return 'passed';
+	if (PASS_LINE_RE.test(lines[0]) && !lines.slice(1).some((l) => CORRECTION_RE.test(l))) return 'passed';
+	return 'corrected';
 }
 
 function collect(brainDir, since = '') {
@@ -59,7 +63,7 @@ function collect(brainDir, since = '') {
 	return reasks;
 }
 
-function byKind(reasks) {
+export function byKind(reasks) {
 	const table = {};
 	for (const r of reasks) {
 		for (const k of r.kinds.length ? r.kinds : ['(종류 없음)']) {
@@ -81,9 +85,36 @@ function printTable(table, label) {
 	}
 }
 
+const USAGE = 'usage: node scripts/selfcheck_stats.mjs [--since YYYY-MM-DD] [--brain <dir>] [--out <file.json>] | --merge <a.json ...>\n';
+
+function validateArgs(argv) {
+	const mergeIdx = argv.indexOf('--merge');
+	if (mergeIdx >= 0) {
+		if (mergeIdx > 0 || argv.length <= mergeIdx + 1) {
+			process.stderr.write(USAGE);
+			process.exit(2);
+		}
+		return;
+	}
+	for (let i = 0; i < argv.length; i += 1) {
+		if (argv[i] === '--since' || argv[i] === '--brain' || argv[i] === '--out') {
+			if (i + 1 >= argv.length || argv[i + 1].startsWith('--')) {
+				process.stderr.write(`missing value for ${argv[i]}\n${USAGE}`);
+				process.exit(2);
+			}
+			i += 1;
+			continue;
+		}
+		process.stderr.write(`unknown argument: ${argv[i]}\n${USAGE}`);
+		process.exit(2);
+	}
+}
+
 function main() {
-	if (process.argv.includes('--merge')) {
-		const files = process.argv.slice(process.argv.indexOf('--merge') + 1);
+	const argv = process.argv.slice(2);
+	validateArgs(argv);
+	if (argv.includes('--merge')) {
+		const files = argv.slice(argv.indexOf('--merge') + 1);
 		const all = [];
 		const seen = new Set();
 		for (const f of files) {
@@ -108,4 +139,6 @@ function main() {
 	console.log(`저장: ${out}`);
 }
 
-main();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+	main();
+}

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# sync_guard_pack.sh — 가드 팩(GUARD_PACK_VERSION 1.0.0)을 캐노니컬(lazyargon-workspace)에서
+# sync_guard_pack.sh — 가드 팩(GUARD_PACK_VERSION 1.1.0)을 캐노니컬(lazyargon-workspace)에서
 # 자매 플러그인 레포(lazyargon)로 동기화한다. 2대 통합 플러그인 레포가 같은 디렉터리에 클론되어 있을 때 동작한다.
 #
-# 사용법: bash scripts/sync_guard_pack.sh
-# 캐노니컬: lazyargon-workspace/scripts/{markdown_structure_guard,json_schema_guard}.mjs
+# 사용법: bash scripts/sync_guard_pack.sh [--check]
+# 캐노니컬: lazyargon-workspace/scripts/{markdown_structure_guard,json_schema_guard,stop_claim_guard,post_tool_feedback,lookup_guard,selfcheck_stats}.mjs
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"

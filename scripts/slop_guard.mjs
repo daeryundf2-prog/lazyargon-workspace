@@ -1,18 +1,14 @@
 #!/usr/bin/env node
 /**
  * slop_guard.mjs — 보고서 문서의 AI 슬롭과 정리 문제를 쓰는 즉시 표시한다. 경고만 하고 막지 않는다.
- *
- * 사용자 결정(2026-11-04): 하이브리드 — 결정적 검토기가 위치를 표시하고, 밀도가 높을 때만
- * humanize-korean 구간 지정 모드로 그 줄만 고치도록 제안한다. 범위는 보고서 파일, 영어 패턴 포함.
- * 보고서 정리 항목(반복 안내문·요지 동어반복·본문 근거 번호·Bytes 병기·파일명 나열·괄호 뒤 띄어쓰기·
- * 벽돌 셀·자리표시·단정 표현)은 사용자가 후임에게 보낸 포렌식 보고서 수정 지시서(2026-11-04)에서 왔다.
- * 패턴 원본: scripts/slop_patterns.json. 인용·코드·표 행은 상투 표현 검사에서 뺀다(철칙 1).
- *
- *   PostToolUse: stdin 페이로드에서 쓴 파일을 찾아 검사 → stderr "[SLOP GUARD] WARN …", stdout {} , exit 0
- *   CLI:         node scripts/slop_guard.mjs --file <path>   → JSON 결과
+ * 하이브리드(2026-11-04): 결정적 검토기가 위치를 표시하고 밀도가 높을 때만 humanize-korean 구간 모드를 제안한다.
+ * 보고서 정리 항목은 포렌식 보고서 수정 지시서(2026-11-04) 기준, 패턴 원본은 scripts/slop_patterns.json.
+ *   PostToolUse: stdin 페이로드에서 쓴 파일을 찾아 검사 → stderr "[SLOP GUARD] WARN …", stdout {}, exit 0
+ *   CLI:         node scripts/slop_guard.mjs --file <path> → JSON 결과
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { stdin } from 'node:process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -48,10 +44,7 @@ const OVERCLAIM_RE = /정황입니다|명백히|틀림없이|의도적으로/;
 function maskedLines(lines) {
 	let inFence = false;
 	return lines.map((line) => {
-		if (/^\s*(?:```|~~~)/.test(line)) {
-			inFence = !inFence;
-			return '';
-		}
+		if (/^\s*(?:```|~~~)/.test(line)) { inFence = !inFence; return ''; }
 		if (inFence || /^\s*>/.test(line) || /^\s*\|/.test(line)) return '';
 		return line.replace(/`[^`]*`/g, ' ').replace(/"[^"\n]*"|“[^”\n]*”|「[^」\n]*」|『[^』\n]*』|'[^'\n]{2,}'/g, ' ');
 	});
@@ -59,12 +52,7 @@ function maskedLines(lines) {
 
 const norm = (s) => s.replace(/[\s\p{P}\p{S}]/gu, '');
 const numbers = (s) => new Set((s.match(/\d[\d,]*\d/g) || []).map((x) => x.replace(/,/g, '')));
-function bigrams(s) {
-	const t = norm(s);
-	const out = new Set();
-	for (let i = 0; i < t.length - 1; i++) out.add(t.slice(i, i + 2));
-	return out;
-}
+const bigrams = (s, t = norm(s)) => new Set(Array.from({ length: Math.max(0, t.length - 1) }, (_, i) => t.slice(i, i + 2)));
 function jaccard(a, b) {
 	let n = 0;
 	for (const x of a) if (b.has(x)) n++;
@@ -76,19 +64,12 @@ export function hygiene(lines, extra = []) {
 	const add = (id, line, excerpt) => out.push({ id, line, label: HYGIENE_RULES[id][0], fix: HYGIENE_RULES[id][1], excerpt: String(excerpt).trim().slice(0, 80) });
 	const paragraphs = [];
 	let para = null;
-	const closePara = () => {
-		if (para && norm(para.text).length >= 40) paragraphs.push(para);
-		para = null;
-	};
+	const closePara = () => { if (para && norm(para.text).length >= 40) paragraphs.push(para); para = null; };
 	const sentences = new Map();
 	let inFence = false;
 	lines.forEach((raw, i) => {
 		const ln = i + 1;
-		if (/^\s*(?:```|~~~)/.test(raw)) {
-			inFence = !inFence;
-			closePara();
-			return;
-		}
+		if (/^\s*(?:```|~~~)/.test(raw)) { inFence = !inFence; closePara(); return; }
 		if (inFence) return;
 		const line = raw.replace(/`[^`]*`/g, ' ');
 		if (PAREN_GAP_RE.test(line)) add('paren-spacing', ln, line);
@@ -100,10 +81,7 @@ export function hygiene(lines, extra = []) {
 			if (cell) add('brick-cell', ln, cell);
 			return;
 		}
-		if (/^\s*>/.test(line) || /^\s*#/.test(line) || !line.trim()) {
-			closePara();
-			return;
-		}
+		if (/^\s*>/.test(line) || /^\s*#/.test(line) || !line.trim()) { closePara(); return; }
 		if (INLINE_REF_RE.test(line)) add('inline-evidence-ref', ln, line);
 		if ((line.match(FILE_RE) || []).length >= 3) add('filename-list', ln, line);
 		if (OVERCLAIM_RE.test(line.replace(/"[^"\n]*"|“[^”\n]*”/g, ' '))) add('overclaim', ln, line);
@@ -153,6 +131,7 @@ export function scan(text) {
 }
 
 // HTML은 표 행을 '| a | b |' 줄로, 나머지는 문단 줄로 바꿔 마크다운과 같은 규칙으로 본다.
+const HTML_ENT = { nbsp: ' ', lt: '<', gt: '>', quot: '"', '#39': "'", amp: '&' };
 function htmlToText(raw) {
 	const cell = (s) => s.replace(/<br\s*\/?>/gi, '<br>').replace(/<(?!br>)[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 	return raw
@@ -160,12 +139,7 @@ function htmlToText(raw) {
 		.replace(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi, (_, row) => `\n| ${[...row.matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((m) => cell(m[1])).join(' | ')} |\n`)
 		.replace(/<br\s*\/?>|<\/(?:p|div|li|h[1-6]|blockquote|section)>/gi, '\n')
 		.replace(/<(?!br>)[^>]+>/g, '')
-		.replace(/&nbsp;/g, ' ')
-		.replace(/&lt;/g, '<')
-		.replace(/&gt;/g, '>')
-		.replace(/&quot;/g, '"')
-		.replace(/&#39;/g, "'")
-		.replace(/&amp;/g, '&');
+		.replace(/&(nbsp|lt|gt|quot|#39|amp);/g, (_, k) => HTML_ENT[k]);
 }
 
 // JSON 원고(블록 id → 문자열)는 문자열 값만 줄로 꺼낸다. 'ph' 키는 미입력 자리표시다.
@@ -174,10 +148,7 @@ function jsonToText(raw, extra) {
 	const flag = (id, excerpt) => extra.push({ id, line: 0, label: HYGIENE_RULES[id][0], fix: HYGIENE_RULES[id][1], excerpt: String(excerpt).slice(0, 80) });
 	const walk = (v, key) => {
 		if (typeof v === 'string') {
-			if (key === 'ph') {
-				if (v.trim()) flag('placeholder', `ph: ${v}`);
-				return;
-			}
+			if (key === 'ph') { if (v.trim()) flag('placeholder', `ph: ${v}`); return; }
 			if (/<br\s*\/?>\s*$/i.test(v)) flag('stray-br', `${key}: ${v}`);
 			lines.push(...v.split(/\r?\n/));
 		} else if (Array.isArray(v)) v.forEach((x) => walk(x, key));
@@ -191,65 +162,79 @@ export function scanReport(raw, file = 'x.md') {
 	const extra = [];
 	let text = raw;
 	if (/\.html?$/i.test(file)) text = htmlToText(raw);
-	else if (/\.json$/i.test(file)) {
-		try {
-			text = jsonToText(raw, extra);
-		} catch {
-			text = raw;
-		}
-	}
+	else if (/\.json$/i.test(file)) try { text = jsonToText(raw, extra); } catch { text = raw; }
 	return { ...scan(text), hygiene: hygiene(text.split(/\r?\n/), extra) };
 }
+
+const REWRITE_MSG = "상투 표현 밀도가 높다. 사용자에게 humanize-korean '구간 지정 모드'로 위 줄만 고칠지 물어라(인용·수치·고유명사는 그대로 둔다). 자동으로 고치지 않는다.";
+const EDIT_MSG = '상투 표현은 해당 문장만 자연스럽게 고칠지 판단하라. 인용·수치·고유명사는 그대로 둔다.';
 
 function warning(file, res) {
 	const parts = [`[SLOP GUARD] WARN — ${path.basename(file)}: AI 상투 표현 ${res.findings.length}곳 (1천 자당 ${res.per1000}) · 보고서 정리 ${res.hygiene.length}건`];
 	if (res.weight >= MIN_WEIGHT) {
 		const byLine = new Map();
 		for (const f of res.findings) byLine.set(f.line, { labels: [...(byLine.get(f.line)?.labels || []), f.label], excerpt: f.excerpt });
-		parts.push([...byLine].slice(0, 8).map(([ln, v]) => `- ${ln ? `L${ln} ` : ''}${v.labels.join(' · ')}${v.excerpt ? `\n    ${v.excerpt}` : ''}`).join('\n'));
-		parts.push(
-			res.suggest_rewrite
-				? "상투 표현 밀도가 높다. 사용자에게 humanize-korean '구간 지정 모드'로 위 줄만 고칠지 물어라(인용·수치·고유명사는 그대로 둔다). 자동으로 고치지 않는다."
-				: '상투 표현은 해당 문장만 자연스럽게 고칠지 판단하라. 인용·수치·고유명사는 그대로 둔다.',
-		);
+		parts.push([...byLine].slice(0, 8).map(([ln, v]) => `- ${ln ? `L${ln} ` : ''}${v.labels.join(' · ')}${v.excerpt ? `\n    ${v.excerpt}` : ''}`).join('\n'), res.suggest_rewrite ? REWRITE_MSG : EDIT_MSG);
 	}
 	if (res.hygiene.length) {
 		const byId = new Map();
 		for (const h of res.hygiene) byId.set(h.id, [...(byId.get(h.id) || []), h]);
-		parts.push('보고서 정리:');
-		for (const hs of byId.values()) {
+		parts.push('보고서 정리:', ...[...byId.values()].map((hs) => {
 			const at = hs.filter((h) => h.line).map((h) => `L${h.line}`).slice(0, 6).join(', ');
-			parts.push(`- ${hs[0].label} ${hs.length}건${at ? ` (${at})` : ''} → ${hs[0].fix}\n    ${hs[0].excerpt}`);
-		}
-		parts.push('보고서를 쓰는 중이면 위 정리 항목을 해당 줄에서 바로 고쳐라. 반복은 첫 번째만 남기고 지우며, 수치·인용·고유명사·날짜 값은 바꾸지 않는다.');
+			return `- ${hs[0].label} ${hs.length}건${at ? ` (${at})` : ''} → ${hs[0].fix}\n    ${hs[0].excerpt}`;
+		}), '보고서를 쓰는 중이면 위 정리 항목을 해당 줄에서 바로 고쳐라. 반복은 첫 번째만 남기고 지우며, 수치·인용·고유명사·날짜 값은 바꾸지 않는다.');
 	}
 	return `${parts.join('\n')}\n`;
 }
 
+function readStdin(limitMs = 1500) {
+	return new Promise((resolve) => {
+		if (stdin.isTTY) return resolve('');
+		const chunks = [];
+		let settled = false;
+		const finish = (v) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			try { stdin.pause(); } catch {}
+			stdin.removeAllListeners();
+			resolve(v);
+		};
+		const timer = setTimeout(() => finish(Buffer.concat(chunks).toString('utf8')), limitMs);
+		timer.unref?.();
+		stdin.on('data', (c) => {
+			chunks.push(c);
+			const acc = Buffer.concat(chunks).toString('utf8').trim();
+			if ((acc.startsWith('{') && acc.endsWith('}')) || (acc.startsWith('[') && acc.endsWith(']'))) {
+				try { JSON.parse(acc); finish(acc); } catch {}
+			}
+		});
+		stdin.on('end', () => finish(Buffer.concat(chunks).toString('utf8')));
+		stdin.on('error', () => finish(''));
+	});
+}
+
 function targetOf(payload) {
-	const pools = [payload?.toolCall?.args, payload?.tool_input, payload?.toolInput, payload?.args];
-	for (const a of pools) {
-		if (!a || typeof a !== 'object') continue;
-		for (const k of ['TargetFile', 'file_path', 'filePath', 'Path', 'path', 'AbsolutePath']) {
-			if (typeof a[k] === 'string' && a[k]) return a[k];
+	for (const a of [payload?.toolCall?.args, payload?.tool_input, payload?.toolInput, payload?.args]) {
+		if (a && typeof a === 'object') {
+			for (const k of ['TargetFile', 'file_path', 'filePath', 'Path', 'path', 'AbsolutePath']) {
+				if (typeof a[k] === 'string' && a[k]) return a[k];
+			}
 		}
 	}
 	return '';
 }
 
-function hook() {
+async function hook() {
 	let payload = {};
-	try {
-		payload = JSON.parse(fs.readFileSync(0, 'utf8') || '{}');
-	} catch {
-		payload = {};
-	}
+	try { payload = JSON.parse((await readStdin(1500)) || '{}'); } catch {}
 	const file = targetOf(payload);
 	if (file && TEXT_EXT_RE.test(file) && REPORT_NAME_RE.test(path.basename(file)) && fs.existsSync(file)) {
 		const res = scanReport(fs.readFileSync(file, 'utf8'), file);
 		if (res.weight >= MIN_WEIGHT || res.hygiene.length) process.stderr.write(warning(file, res));
 	}
 	process.stdout.write('{}\n');
+	process.exit(0);
 }
 
 const isMain = Boolean(process.argv[1]) && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
@@ -258,5 +243,5 @@ if (isMain && fileArg >= 0) {
 	const f = process.argv[fileArg + 1];
 	process.stdout.write(`${JSON.stringify({ file: f, ...scanReport(fs.readFileSync(f, 'utf8'), f) }, null, 1)}\n`);
 } else if (isMain) {
-	hook();
+	hook().catch(() => { process.stdout.write('{}\n'); process.exit(0); });
 }

@@ -50,15 +50,15 @@ EVIDENCE_FILE_EXTS = (
 FILE_TOKEN_RE = re.compile(rf"(?<![\w./\\-])([\w가-힣()\[\] .,_-]*?[\w가-힣)\]_-]\.(?:{EVIDENCE_FILE_EXTS}))(?![A-Za-z0-9_])", re.IGNORECASE)
 BARE_FILE_RE = re.compile(rf"[\w가-힣() .\-]+\.(?:{EVIDENCE_FILE_EXTS})", re.IGNORECASE)
 QUOTE_RES = [
-    re.compile(r'"([^"\n]{2,1000})"'),
-    re.compile(r"“([^”\n]{2,1000})”"),
-    re.compile(r"‘([^’\n]{2,1000})’"),
-    re.compile(r"(?<![A-Za-z0-9])'([^'\n]{2,1000})'(?![A-Za-z0-9])"),
-    re.compile(r"「([^」\n]{2,1000})」"),
-    re.compile(r"『([^』\n]{2,1000})』"),
-    re.compile(r"《([^》\n]{2,1000})》"),
-    re.compile(r"〈([^〉\n]{2,1000})〉"),
-    re.compile(r"«([^»\n]{2,1000})»"),
+    re.compile(r'"([^"\n]{1,1000})"'),
+    re.compile(r"“([^”\n]{1,1000})”"),
+    re.compile(r"‘([^’\n]{1,1000})’"),
+    re.compile(r"(?<![A-Za-z0-9])'([^'\n]{1,1000})'(?![A-Za-z0-9])"),
+    re.compile(r"「([^」\n]{1,1000})」"),
+    re.compile(r"『([^』\n]{1,1000})』"),
+    re.compile(r"《([^》\n]{1,1000})》"),
+    re.compile(r"〈([^〉\n]{1,1000})〉"),
+    re.compile(r"«([^»\n]{1,1000})»"),
 ]
 SINGLE_QUOTE_IDX = {2, 3}
 SPEECH_AFTER_RE = re.compile(r"\s*(?:이?라고|이?라며|이?라는\s*(?:말|메시지|문자|발언|답장)|하고\s|고\s*(?:말|했|보냈|적|썼|외쳤|답))")
@@ -154,8 +154,19 @@ def norm(s: str) -> str:
 
 def _read_text(path: Path) -> str:
     raw = path.read_text(encoding="utf-8", errors="replace")
-    if path.suffix.lower() in {".html", ".htm", ".xml"}:
+    suf = path.suffix.lower()
+    if suf in {".html", ".htm", ".xml"}:
         raw = re.sub(r"<[^>]+>", " ", raw)
+    elif suf in {".vtt", ".srt"}:
+        # WebVTT/SRT: 인라인 타임태그(<00:00:32.320><c> 등)를 제거하고 롤링 중복 행을 제거한 본문과 원본 시각을 함께 보존
+        dedup_lines: list[str] = []
+        for ln in raw.splitlines():
+            s = re.sub(r"<[^>]+>", "", ln).strip()
+            if not s or s.startswith(("WEBVTT", "Kind:", "Language:", "NOTE")) or "-->" in s or s.isdigit():
+                continue
+            if not dedup_lines or s != dedup_lines[-1]:
+                dedup_lines.append(s)
+        raw = raw + "\n" + "\n".join(dedup_lines)
     return raw
 
 
@@ -177,9 +188,13 @@ def speaker_index(texts: dict[str, str]) -> list[tuple[str, str, frozenset[str]]
     for t in texts.values():
         day = ""  # 카카오톡 PC 내보내기는 날짜를 구분선 줄에만 적고, 발언 줄에는 '[오후 3:33]'만 둔다.
         for line in t.splitlines():
+            if len(line) > 2000:
+                continue
             dm = KAKAO_PC_DATE_RE.match(line)
             if dm:
                 day = f"{int(dm.group(1)):04d}-{int(dm.group(2)):02d}-{int(dm.group(3)):02d}"
+                continue
+            if ":" not in line and "：" not in line and not line.lstrip().startswith("["):
                 continue
             m = KAKAO_PC_RE.match(line) or SPEAKER_LINE_RE.search(line)
             if m:
@@ -334,8 +349,15 @@ def _skip_quote(q: str, line: str, start: int, end: int) -> bool:
 
 def _clean_report(text: str) -> tuple[list[str], set[int]]:
     if re.search(r"<[a-zA-Z/][^>]*>", text):
+        text = re.sub(
+            r"<(?:style|script)\b[^>]*>[\s\S]*?</(?:style|script)>",
+            lambda m: "\n" * m.group(0).count("\n"),
+            text,
+            flags=re.IGNORECASE,
+        )
         text = re.sub(r"</?q\b[^>]*>", '"', text, flags=re.IGNORECASE)
-        text = html.unescape(TAG_RE.sub("\n", INLINE_TAG_RE.sub("", text)))
+        text = re.sub(r"<code\b[^>]*>(.*?)</code>", r"`\1`", text, flags=re.IGNORECASE)
+        text = html.unescape(TAG_RE.sub(" ", INLINE_TAG_RE.sub("", text)))
     lines = text.splitlines()
     fenced: set[int] = set()
     inside = False
@@ -562,8 +584,12 @@ def check(report_text: str, source_paths: list[str], timeline_text: str = "") ->
                 unsupported(f"L{ln} 근거 없는 수치: {m.group(0).strip()} — 자료나 분석 산출물(집계 JSON 등)에 이 값이 없다", m.start(), m.end())
         if not EXAMINER_DUR_RE.search(line):
             for dm in DUR_MS_RE.finditer(line):
-                secs = str(int(dm.group(1)) * 60 + int(dm.group(2)))
-                said = re.sub(r"\s+", "", dm.group(0)) in re.sub(r"\s+", "", corpus_digits)
+                mm_i, ss_i = int(dm.group(1)), int(dm.group(2))
+                secs = str(mm_i * 60 + ss_i)
+                said = (
+                    re.sub(r"\s+", "", dm.group(0)) in re.sub(r"\s+", "", corpus_digits)
+                    or bool(re.search(rf"(?:^|\D)0?{mm_i}:{ss_i:02d}(?!\d)", corpus_digits))
+                )
                 if not said and not any(v == secs and re.search(UNIT_KEYS["dur"], k) for k, v in struct):
                     unsupported(f"L{ln} 근거 없는 시간 길이: {dm.group(0)} — 자료나 분석 산출물에 이 값이 없다", dm.start(), dm.end())
         for value, ms, me, raw in money_values(line)[1]:

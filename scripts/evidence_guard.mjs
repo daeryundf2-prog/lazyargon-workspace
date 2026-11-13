@@ -396,7 +396,7 @@ function pathTokens(texts) {
 // 판단이 불가능한 형태(멀티라인, python -c 인라인 코드, 쓰기 신호 포함)는
 // 전부 차단으로 간다 — best-effort 가드의 실패폐쇄 방향.
 // ---------------------------------------------------------------------------
-const READ_ONLY_VERBS = /^(sha256sum|md5sum|sha1sum|shasum|sha256deep|cat|ls|dir|file|stat|head|tail|wc|strings|exiftool|fls|ils|icat|img_stat|fsstat|jpeg_extract|python3?|py|node|Get-WinEvent|Get-FileHash|Get-Item|Get-ChildItem|Get-Content|Get-ItemProperty|Test-Path|Select-String)\b/i;
+const READ_ONLY_VERBS = /^(sha256sum|md5sum|sha1sum|shasum|sha256deep|cat|ls|dir|file|stat|head|tail|wc|strings|exiftool|fls|ils|icat|img_stat|fsstat|jpeg_extract|find|rg|grep|git|python3?|py|node|Get-WinEvent|Get-FileHash|Get-Item|Get-ChildItem|Get-Content|Get-ItemProperty|Test-Path|Select-String)\b/i;
 // 출력을 버리거나 추리기만 하는 끝 파이프(| Out-Null 등)는 쓰기가 아니다. Windows QA(2026-11-02)에서
 // 'parse_ntfs_artifacts.py … | Out-Null' 과 '(Get-WinEvent -Path x.evtx).Count' 가 쓰기로 차단됐다.
 // 끝 파이프에 스크립트 블록·괄호·변수가 있으면({ $_.Delete() } 등) 걷어 내지 않는다.
@@ -404,15 +404,16 @@ const DISCARD_PIPE_TAIL_RE = /(?:\s*\|\s*(?:Out-Null|Out-String|Measure-Object|S
 // '(Get-WinEvent -Path x.evtx).Count' 처럼 괄호로 감싼 읽기는 끝에 속성 접근만 허용한다.
 // '(Get-Item x.evtx).Delete()' 같은 메서드 호출은 쓰기다(적대적 리뷰 2026-11-03).
 const PAREN_READ_RE = /^\s*\([^()]*\)(?:\.\w+)*\s*$/;
-const WRITE_SIGNS_RE = /(>|>>|\btee\b|\bdd\b|\bcp\b|\bmv\b|\brm\b|\bshred\b|\btruncate\b|\bchmod\b|\bchown\b|\bchattr\b|\bmkfs\b|\bsponge\b|\binstall\b|\btouch\b|\bmktemp\b|\bsed\b[^\n]*\s-i\b|\bRemove-Item\b|\bSet-Content\b|\bAdd-Content\b|\bOut-File\b|\bCopy-Item\b|\bMove-Item\b|\bClear-Content\b|\bdel\b|\berase\b|(?:\s|^)(?:-e|--eval)\b|(?<![-\w])-\w+=)/i;
+const WRITE_SIGNS_RE = /(>|>>|\btee\b|\bdd\b|\bcp\b|\bmv\b|\brm\b|\bshred\b|\btruncate\b|\bchmod\b|\bchown\b|\bchattr\b|\bmkfs\b|\bsponge\b|\binstall\b|\btouch\b|\bmktemp\b|\bsed\b[^\n]*\s-i\b|\bRemove-Item\b|\bSet-Content\b|\bAdd-Content\b|\bOut-File\b|\bCopy-Item\b|\bMove-Item\b|\bClear-Content\b|\bdel\b|\berase\b|(?:\s|^)(?:-e|--eval)\b|(?<![-\w])-\w+=|\s-(?:delete|exec|execdir|ok|fprint\w*|fls)\b|\bgit\s+(?:\S+\s+)*(?:commit|checkout|clean|reset|restore|apply|am|merge|rebase|cherry-pick|revert|stash|clone|pull|add|rm|mv)\b)/i;
 // 화이트리스트 스크립트는 인터프리터가 실제로 실행하는 첫 인자여야 한다('python wipe.py x.evtx verify_report.py' 는 아니다).
-const READONLY_INTERPRETER_SCRIPTS_RE = /^(verify_report\.py|forensic_audit\.py|audit_timestamps\.py|coverage_audit\.mjs|verify_legal_factuality\.py|check_tool\.py|parse_ntfs_artifacts\.py)$/i;
+const READONLY_INTERPRETER_SCRIPTS_RE = /^(verify_report\.py|forensic_audit\.py|audit_timestamps\.py|coverage_audit\.mjs|verify_legal_factuality\.py|check_tool\.py|parse_ntfs_artifacts\.py|collect_mac_usage\.py)$/i;
 
 function interpreterScript(t) {
 	const toks = t.match(/"[^"]*"|'[^']*'|\S+/g) || [];
 	let i = 1;
 	while (i < toks.length && toks[i].startsWith('-')) i += /^-[XW]$/.test(toks[i]) ? 2 : 1;
-	return path.basename((toks[i] || '').replace(/^['"]|['"]$/g, ''));
+	const raw = (toks[i] || '').replace(/^['"]|['"]$/g, '');
+	return raw.split(/[\\/]/).pop() || '';
 }
 // Windows 에이전트가 명령 앞에 붙이는 출력 인코딩 설정(줄 또는 ';' 로 구분)은 쓰기가 아니므로 걷어 낸다.
 const ENCODING_PREAMBLE_RE = /^\s*(?:\[Console\]::(?:Output|Input)Encoding\s*=\s*[\w.:\[\]()]+|\$OutputEncoding\s*=\s*[\w.:\[\]()]+|chcp(?:\.com)?\s+65001(?:\s*>\s*\$null)?|\$env:PYTHON(?:UTF8|IOENCODING)\s*=\s*['"]?[\w-]+['"]?)\s*$/i;
@@ -462,6 +463,7 @@ function isProtectedName(token) {
 	let name = String(token).replace(/^(.*\.[^\\/.:]+):[^\\/]*$/, '$1').replace(/[.\s]+$/, '');
 	if (PROTECTED_EXTENSIONS.test(name)) return true;
 	const seg = name.split(/[\\/]/).pop();
+	if (seg === '.*' || seg === '*') return false;
 	const ext = seg.includes('.') ? seg.slice(seg.lastIndexOf('.') + 1) : '';
 	if (/[*?]/.test(ext)) {
 		const re = new RegExp(`^${ext.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`, 'i');

@@ -79,7 +79,7 @@ venv 인지 리졸버: 위 표의 `python` 자리에 `scripts/py`를 쓰면 `~/.
 
 계약 서식·법령 조회는 `../legal-forensic-consult/SKILL.md`. 세션의 `korean_law`가 `ready`일 때만 MCP를 쓴다. 조문을 만들지 않는다.
 
-병렬 작업은 `../../docs/antigravity-tools.md`의 `invoke_subagent`만 쓴다. 파싱·추출·표 정리·초안 골격은 `Model: "flash"`, 보고서 본문·법률 초안·검증/대조 판정은 `Model: "inherit"`. Claude 5.5 세션이면 `inherit`는 최종 판정 1레인만(Claude 할당량 절약). 팬아웃 전 `예산:` 한 줄(기본 4레인/2웨이브).
+병렬 작업은 `../../docs/antigravity-tools.md`의 평면 `invoke_subagent`만 쓰며 `browser` 포함 전 레인을 `Model: "inherit"`로 일원화한다(`flash` 전면 폐기, 0% 쿼터 고갈 비상시만 `flash_lite`, 다중 파일 편집 시 통합 검증은 부모가 1회 배치 실행). 기본 주력은 `Argon`이며 보안·리버싱 특화 레인만 `Carbon`을 사용한다. 고위험 최종 제출본 교차 검증은 `swarm` 핀 고정 `claude-opus-5-5-medium` 읽기 전용 감사관 1기를 호출 후 `kill` 회수한다. 팬아웃 전 `예산:` 한 줄(기본 4레인/2웨이브).
 
 민감 증거(성적·폭력·혐오 표현)는 모델이 원문을 다시 쓰지 않는다. 결정적 스크립트 출력과 `파일:행`만 보고서에 옮기고, 안전 필터 차단은 `미확인(모델 유보: 안전 필터)`로 적는다 (`../../GEMINI.md` 실패 폐쇄 절).
 
