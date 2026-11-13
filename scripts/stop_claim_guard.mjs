@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * stop_claim_guard.mjs — Stop/SubagentStop 자기완료 선언 게이트
- * GUARD_PACK_VERSION: 1.0.0 (캐노니컬: lazyargon-workspace/scripts — 수정 후 scripts/sync_guard_pack.sh 로 lazyargon 에 동기화)
+ * GUARD_PACK_VERSION: 1.1.0 (캐노니컬: lazyargon-workspace/scripts — 수정 후 scripts/sync_guard_pack.sh 로 lazyargon 에 동기화)
  *
  * 임무: 모델의 최종 메시지가 "완료/전수/100%/무결점/모두 통과" 류의 완료 선언을 하면서
  * 반증 가능한 증거(실행 명령, 테스트 수, 산출물 경로, 커밋 SHA)를 제시하지 않으면
@@ -21,7 +21,7 @@
  * - 최종 메시지를 못 읽거나 파싱에 실패하면 개입하지 않는다 (exit 0).
  * - 증거가 있는 선언은 통과시킨다. 이 가드는 완료 자체가 아니라 무근거 완료 선언만 막는다.
  */
-const GUARD_PACK_VERSION = '1.0.0';
+const GUARD_PACK_VERSION = '1.1.0';
 
 const CLAIM_RE = new RegExp(
 	[
@@ -66,7 +66,7 @@ function recordFailedLookups(raw) {
 	spawnSync(process.execPath, [guard], { input: raw, encoding: 'utf8', timeout: 4000 });
 }
 
-function readStdin(limitMs) {
+function readStdin(limitMs = 1500) {
 	return new Promise((resolve) => {
 		const { stdin } = process;
 		if (stdin.isTTY) {
@@ -79,11 +79,22 @@ function readStdin(limitMs) {
 			if (settled) return;
 			settled = true;
 			clearTimeout(timer);
+			try { stdin.pause(); } catch {}
 			stdin.removeAllListeners();
 			resolve(value);
 		};
 		const timer = setTimeout(() => finish(Buffer.concat(chunks).toString('utf8')), limitMs);
-		stdin.on('data', (chunk) => chunks.push(chunk));
+		if (typeof timer.unref === 'function') timer.unref();
+		stdin.on('data', (chunk) => {
+			chunks.push(chunk);
+			const acc = Buffer.concat(chunks).toString('utf8').trim();
+			if ((acc.startsWith('{') && acc.endsWith('}')) || (acc.startsWith('[') && acc.endsWith(']'))) {
+				try {
+					JSON.parse(acc);
+					finish(acc);
+				} catch {}
+			}
+		});
 		stdin.on('end', () => finish(Buffer.concat(chunks).toString('utf8')));
 		stdin.on('error', () => finish(''));
 	});
@@ -125,37 +136,119 @@ function resolveTranscriptPaths(payload) {
 	});
 }
 
-function extractLastAssistantMessageFromTranscript(transcriptContent) {
+function unquoteVal(val) {
+	if (typeof val !== 'string') return '';
+	const t = val.trim();
+	if (t.length >= 2 && t.startsWith('"') && t.endsWith('"')) {
+		try {
+			const parsed = JSON.parse(t);
+			if (typeof parsed === 'string') return parsed;
+		} catch {
+			return t.slice(1, -1);
+		}
+	}
+	return val;
+}
+
+function extractSendMessageTexts(step) {
+	const calls = Array.isArray(step?.tool_calls)
+		? step.tool_calls
+		: Array.isArray(step?.toolCalls)
+			? step.toolCalls
+			: step?.toolCall && typeof step.toolCall === 'object'
+				? [step.toolCall]
+				: [];
+	const msgs = [];
+	for (const tc of calls) {
+		if (!tc || typeof tc !== 'object') continue;
+		const name = unquoteVal(String(tc.name || tc.tool_name || tc.toolName || tc.function?.name || ''));
+		if (!/^send_message$/i.test(name)) continue;
+		let args = tc.args ?? tc.arguments ?? tc.input ?? tc.parameters ?? tc.function?.arguments;
+		if (typeof args === 'string') {
+			try {
+				args = JSON.parse(unquoteVal(args));
+			} catch {
+				try { args = JSON.parse(args); } catch { args = null; }
+			}
+		}
+		if (args && typeof args === 'object') {
+			const msg = args.Message ?? args.message ?? args.content ?? '';
+			if (typeof msg === 'string' && msg.trim()) msgs.push(unquoteVal(msg));
+		}
+	}
+	return msgs;
+}
+
+const CLOSING_ACK_RE = /(?:전달|보고|전송|회신)(?:했|드렸|하였|완료)|(?:전달|보고)했습니다/;
+
+export function extractLastAssistantMessageFromTranscript(transcriptContent) {
 	if (!transcriptContent) return '';
 	const lines = transcriptContent.split(/\r?\n/).filter((l) => l.trim().length > 0).slice(-30).reverse();
+	const modelSteps = [];
 	for (const line of lines) {
 		try {
 			const step = JSON.parse(line);
-			if (!step || typeof step !== 'object') continue;
-			if ((step.type === 'PLANNER_RESPONSE' || step.source === 'MODEL') && typeof step.content === 'string' && step.content.trim()) {
-				return step.content;
-			}
+			if (!step || typeof step !== 'object' || step.type === 'GENERIC') continue;
+			if (step.type === 'PLANNER_RESPONSE' || step.source === 'MODEL') modelSteps.push(step);
 		} catch {
 			// ignore malformed line
 		}
 	}
+	if (!modelSteps.length) return '';
+	const latest = modelSteps[0];
+	const content0 = typeof latest.content === 'string' ? latest.content.trim() : '';
+	const send0 = extractSendMessageTexts(latest);
+	if (send0.length > 0) return [content0, ...send0].filter(Boolean).join('\n');
+	const prevSend = modelSteps[1] ? extractSendMessageTexts(modelSteps[1]) : [];
+	if (prevSend.length > 0) {
+		const sent1 = prevSend.join('\n');
+		if (!content0) return sent1;
+		const nonEmptyLines = content0.split(/\r?\n/).filter((l) => l.trim().length > 0);
+		if (nonEmptyLines.length <= 2 && CLOSING_ACK_RE.test(content0)) {
+			return EVIDENCE_RE.test(sent1) ? '' : `${content0}\n${sent1}`;
+		}
+	}
+	for (const step of modelSteps) {
+		const c = typeof step.content === 'string' ? step.content.trim() : '';
+		const sm = extractSendMessageTexts(step);
+		if (c || sm.length) return [c, ...sm].filter(Boolean).join('\n');
+	}
 	return '';
 }
 
-function readTailContent(filePath, maxBytes = 512 * 1024) {
+const TAIL_FALLBACK_BYTES = 512 * 1024;
+
+function readTailContent(filePath, maxBytes = 32 * 1024) {
 	const stat = fs.statSync(filePath);
 	if (stat.size <= maxBytes) {
 		return fs.readFileSync(filePath, 'utf8');
 	}
 	const fd = fs.openSync(filePath, 'r');
+	let complete = true;
+	let text = '';
 	try {
 		const buf = Buffer.allocUnsafe(maxBytes);
 		fs.readSync(fd, buf, 0, maxBytes, stat.size - maxBytes);
 		const nlIdx = buf.indexOf(0x0a);
-		return (nlIdx >= 0 ? buf.subarray(nlIdx + 1) : buf).toString('utf8');
+		complete = nlIdx >= 0 && nlIdx < maxBytes - 1;
+		text = (nlIdx >= 0 ? buf.subarray(nlIdx + 1) : buf).toString('utf8');
 	} finally {
 		fs.closeSync(fd);
 	}
+	const hasModelStep = text.split(/\r?\n/).some((l) => {
+		const t = l.trim();
+		if (!t.startsWith('{')) return false;
+		try {
+			const s = JSON.parse(t);
+			return Boolean(s && (s.type === 'PLANNER_RESPONSE' || s.source === 'MODEL'));
+		} catch {
+			return false;
+		}
+	});
+	if ((!complete || !hasModelStep) && maxBytes < TAIL_FALLBACK_BYTES) {
+		return readTailContent(filePath, TAIL_FALLBACK_BYTES);
+	}
+	return text;
 }
 
 const NORMAL_STOP_REASONS = new Set(['NO_TOOL_CALL', 'model_stop']);
@@ -194,8 +287,8 @@ const OTHER_ENV_RE = {
 const OUTCOME_RE = /출력(?:됩니다|된다)|나옵니다|나온다|반환(?:합니다|한다|됩니다)|(?:동작|작동)(?:합니다|한다)|실행됩니다|돌아갑니다/;
 const NUM_CLAIM_RE = /(\d[\d,]*(?:\.\d+)?)\s?(건|회|번|개|명|줄|%|퍼센트|MB|GB|KB|ms|초|분|errors?|times|files?|users?|requests?|records?|rows?|lines?|tests?|failures?)/gi;
 
-// 이번 턴(마지막 USER_INPUT 이후)에 실제로 실행한 것: 도구 호출 수, 검색 수, 실패한 조회 수, 도구 출력, 사용자 메시지.
-function turnEvidence(content) {
+// 이번 턴(마지막 USER_INPUT 이후, 없으면 마지막 SYSTEM_MESSAGE 이후)에 실제로 실행한 것: 도구 호출 수, 검색 수, 실패한 조회 수, 도구 출력, 사용자 메시지.
+export function turnEvidence(content) {
 	if (!content) return null;
 	const steps = content.split('\n').filter(Boolean).map((l) => {
 		try {
@@ -205,13 +298,22 @@ function turnEvidence(content) {
 		}
 	}).filter(Boolean);
 	if (!steps.length) return null;
-	let start = 0;
+	let start = -1;
 	for (let i = steps.length - 1; i >= 0; i--) {
 		if (steps[i].type === 'USER_INPUT') {
 			start = i;
 			break;
 		}
 	}
+	if (start < 0) {
+		for (let i = steps.length - 1; i >= 0; i--) {
+			if (steps[i].type === 'SYSTEM_MESSAGE' && !/Stop hook blocked termination:/i.test(String(steps[i].content || ''))) {
+				start = i;
+				break;
+			}
+		}
+	}
+	if (start < 0) start = 0;
 	const turn = steps.slice(start);
 	const calls = turn.flatMap((s) => (Array.isArray(s.tool_calls) ? s.tool_calls : []));
 	const outs = turn.filter((s) => s.type === 'GENERIC').map((s) => String(s.content || ''));
@@ -226,12 +328,12 @@ function turnEvidence(content) {
 		// PowerShell Test-Path 는 없는 경로에 exit 0 + 'False' 만 남긴다(Windows QA, 2026-11-02).
 		failed: outs.filter((o) => LOOKUP_FAIL_RE.test(o)).length + (calls.some((c) => /Test-Path/i.test(JSON.stringify(c.args ?? ''))) && outs.some((o) => /(?:^|\n)\s*False\s*(?:\r?\n|$)/.test(o)) ? 1 : 0),
 		outputs: outs.join('\n').replace(/(?<=\d),(?=\d{3})/g, ''),
-		user: String(turn[0]?.type === 'USER_INPUT' ? turn[0].content || '' : ''),
+		user: String(turn[0]?.type === 'USER_INPUT' || turn[0]?.type === 'SYSTEM_MESSAGE' ? turn[0].content || '' : ''),
 		// 이전 턴의 도구 출력·사용자 메시지(모델 답변은 제외). '지금까지 한 것을 정리해줘' 같은 턴은 앞 턴에서 얻은
 		// 수치를 옮긴다. 실제 transcript 1052턴 리플레이(2026-11-02): 이번 턴만 보면 59% 턴이 되물음, 이전 턴 출력까지 보면 44%.
 		// 줄 번호('137: …')·열람 머리글·시각·긴 16진수(해시)는 근거 수치가 아니다(적대적 리뷰 2026-11-03: 줄 번호 137 이
 		// '총 137건'의 근거로 잡혔다).
-		history: steps.slice(0, start).filter((s) => s.type === 'GENERIC' || s.type === 'USER_INPUT').map((s) => String(s.content || '')).join('\n')
+		history: steps.slice(0, start).filter((s) => s.type === 'GENERIC' || s.type === 'USER_INPUT' || s.type === 'SYSTEM_MESSAGE').map((s) => String(s.content || '')).join('\n')
 			.replace(/^(?:Created At|Completed At|Showing lines|Partial read|Total Lines|File Path)\b[^\n]*$/gim, ' ')
 			.replace(/^\s*\d+:\s/gm, '')
 			.replace(/\b[0-9a-f]{8,}\b/gi, ' ')
@@ -255,7 +357,7 @@ function unsupportedEvidence(message, ev) {
 
 const PATHISH_RE = /^[\w~.:-]*[\\/]\S*$|^[\w.-]+\.\w{1,5}$/;
 
-function riskySentences(message, ev = null) {
+export function riskySentences(message, ev = null) {
 	// 인라인 코드는 지우되, 경로·파일명은 남겨 범위 판정에 쓴다. 실기(2026-11-03): '`C:/temp/lazyqa/registry_parser.py` 파일이
 	// 존재하지 않습니다'에서 경로가 지워져 부재 단정으로 되물었다.
 	const text = message.replace(/```[\s\S]*?```/g, ' ').replace(/`([^`\n]*)`/g, (m, c) => (PATHISH_RE.test(c.trim()) ? c : ' '));
@@ -305,8 +407,12 @@ function riskySentences(message, ev = null) {
 		// 이번 턴에 아무것도 실행하지 않고 '하면 통과합니다/해결됩니다' 를 쓰면 예상을 사실로 말한 것이다.
 		if (!hit && ev && ev.runs === 0 && PRED_RE.test(line)) hit = { kind: '실행하지 않은 결과 예측 단정' };
 		if (!hit && ev) {
-			const calc = line.match(/(\d+)\s*[\/÷×*+-]\s*(\d+)/);
-			for (const m of calc && inOut(calc[1]) && inOut(calc[2]) ? [] : line.matchAll(NUM_CLAIM_RE)) {
+			const scrubbedLine = line
+				.replace(/#L\d+(?:-L?\d+)?/gi, ' ')
+				.replace(/:\d+-\d+(?!\d)/g, ' ')
+				.replace(/(?<!\d)0(?:1[016789]|2)-\d{3,4}-\d{4}(?!\d)/g, ' ');
+			const calc = scrubbedLine.match(/(\d+)\s*[\/÷×*+-]\s*(\d+)/);
+			for (const m of calc && inOut(calc[1]) && inOut(calc[2]) ? [] : scrubbedLine.matchAll(NUM_CLAIM_RE)) {
 				const digits = m[1].replace(/,/g, '');
 				if (Number(digits) < 2) continue;
 				const re = new RegExp(`(?<![\\d.])${digits.replace('.', '\\.')}(?![\\d])`);
@@ -411,7 +517,7 @@ async function main() {
 	let payload;
 	let raw = '';
 	try {
-		raw = await readStdin(2000);
+		raw = await readStdin(1500);
 		payload = JSON.parse(raw);
 	} catch {
 		process.stdout.write('{}\n');
@@ -442,7 +548,7 @@ async function main() {
 	const transcriptPaths = resolveTranscriptPaths(payload);
 	for (const tp of transcriptPaths) {
 		try {
-			transcriptContent = readTailContent(tp, 512 * 1024);
+			transcriptContent = readTailContent(tp);
 			if (transcriptContent) break;
 		} catch {
 			// continue
@@ -574,8 +680,10 @@ async function main() {
 	emitBlock(payload, reason);
 }
 
-main().catch((err) => {
-	process.stderr.write(`stop_claim_guard: internal error: ${err?.stack || err}\n`); // 조용한 통과와 충돌을 구별한다
-	process.stdout.write('{}\n');
-	process.exit(0); // 어떤 경우에도 세션을 가두지 않는다
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+	main().catch((err) => {
+		process.stderr.write(`stop_claim_guard: internal error: ${err?.stack || err}\n`); // 조용한 통과와 충돌을 구별한다
+		process.stdout.write('{}\n');
+		process.exit(0); // 어떤 경우에도 세션을 가두지 않는다
+	});
+}

@@ -97,6 +97,11 @@ FORENSIC_PROCEDURAL_TERMS = {
     "디지털", "포렌식", "디지털포렌식", "해시", "해시값", "타임스탬프", "타임스탬핑", "무결성", "sha", "md",
     "파일", "파일명", "크기", "바이트", "생성", "수정", "접근", "시각", "시간", "기록", "로그", "항목",
     "인", "귀하", "제출", "발급", "기관", "조사", "수사", "경찰", "경찰청", "검찰", "검찰청", "침해사고", "침해",
+    "forensic", "analysis", "report", "evidence", "exhibit", "inventory", "list", "integrity", "certificate",
+    "timeline", "transcript", "verbatim", "contract", "template", "form", "page", "bytes", "byte", "pass",
+    "warn", "fail", "bates", "standard", "brief", "engagement", "ministry", "verification", "suite",
+    "whitespace", "invariants", "colgroup", "layout", "utc", "kst", "chain", "custody", "court",
+    "local", "measurement", "record", "sheet", "material", "first", "tier", "sub", "row",
 }
 
 

@@ -11,27 +11,38 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCOPE_MAX_LINES = 12;
 const PINS_MAX_LINES = 20;
 
-function readStdin(limitMs = 200) {
+function readStdin(limitMs = 1500) {
 	return new Promise((resolve) => {
 		if (stdin.isTTY) {
 			resolve("");
 			return;
 		}
 		const chunks = [];
-		const finish = () => {
+		let settled = false;
+		const finish = (value) => {
+			if (settled) return;
+			settled = true;
 			clearTimeout(timer);
+			try {
+				stdin.pause();
+			} catch {}
 			stdin.removeAllListeners();
-			resolve(Buffer.concat(chunks).toString("utf8"));
+			resolve(value);
 		};
-		const timer = setTimeout(finish, limitMs);
+		const timer = setTimeout(() => finish(Buffer.concat(chunks).toString("utf8")), limitMs);
+		if (typeof timer.unref === "function") timer.unref();
 		stdin.on("data", (chunk) => {
 			chunks.push(chunk);
+			const acc = Buffer.concat(chunks).toString("utf8").trim();
+			if ((acc.startsWith("{") && acc.endsWith("}")) || (acc.startsWith("[") && acc.endsWith("]"))) {
+				try {
+					JSON.parse(acc);
+					finish(acc);
+				} catch {}
+			}
 		});
-		stdin.on("end", finish);
-		stdin.on("error", () => {
-			clearTimeout(timer);
-			resolve("");
-		});
+		stdin.on("end", () => finish(Buffer.concat(chunks).toString("utf8")));
+		stdin.on("error", () => finish(""));
 	});
 }
 
@@ -94,8 +105,19 @@ function headOf(file, maxLines) {
 	}
 }
 
+function tailOf(file, maxLines) {
+	try {
+		if (!existsSync(file)) return "없음";
+		const lines = readFileSync(file, "utf8").replace(/\r\n/g, "\n").split("\n").filter((l) => l.trim());
+		const tail = lines.slice(-maxLines).join("\n");
+		return lines.length > maxLines ? `${tail}\n…(${lines.length - maxLines}줄 생략 — 파일을 직접 읽을 것)` : tail;
+	} catch {
+		return "읽기 실패";
+	}
+}
+
 const scopeLock = (cwd = process.cwd()) => headOf(join(cwd, ".lazyargon", "ulw-scope.md"), SCOPE_MAX_LINES);
-const pins = (cwd = process.cwd()) => headOf(join(cwd, ".lazyargon", "pins.md"), PINS_MAX_LINES);
+const pins = (cwd = process.cwd()) => tailOf(join(cwd, ".lazyargon", "pins.md"), PINS_MAX_LINES);
 
 function guardPackVersion() {
 	try {
@@ -135,11 +157,16 @@ export function additionalContext(payload = {}) {
 	}
 }
 
+export function minimalContext() {
+	return `# LazyForensic — 런타임 요약\nkorean_law: ${koreanLawStatus()}\n가드 팩: ${guardPackVersion()}`;
+}
+
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isMain) {
-	const raw = await readStdin(200);
+	const raw = await readStdin(1500);
 	const payload = parsePayload(raw);
-	const context = additionalContext(payload);
+	const useMinimal = process.argv.includes("--minimal") && existsSync(join(root, "..", "lazyargon", "plugin.json"));
+	const context = useMinimal ? minimalContext() : additionalContext(payload);
 	if (context) {
 		// Antigravity drops the whole SessionStart output when it carries keys beyond injectSteps
 		// (verified live 2026-10-30: extra additionalContext/hookSpecificOutput -> nothing injected).

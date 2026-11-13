@@ -340,18 +340,37 @@ function extractTarget(sources) {
 	return "";
 }
 
-const LEGAL_TRIGGER_RE = /소장|준비서면|고소장|내용증명|판결|판례|조문|민법|형법|법률|legal|draft|court/i;
+const LEGAL_TRIGGER_RE = /소장|준비서면|고소장|내용증명|답변서|판결|판례|조문|민법|형법|법률|대법원|법원/;
 
 function isPluginInternalDoc(targetFile) {
 	try {
 		const abs = path.resolve(targetFile);
-		const rootAbs = path.resolve(root);
-		if (!abs.startsWith(rootAbs + path.sep)) return false;
-		const rel = path.relative(rootAbs, abs).replace(/\\/g, "/");
-		return /^(GEMINI\.md|README\.md|CLAUDE\.md|CHARTER\.md|NOTICE|rules\/|docs\/|skills\/|agents\/|templates\/|contracts\/)/.test(rel);
+		const pluginsDir = path.dirname(path.resolve(root));
+		const lazyargonRoot = path.join(pluginsDir, "lazyargon");
+		if (abs === lazyargonRoot || abs.startsWith(lazyargonRoot + path.sep)) return true;
+		for (const pRoot of [path.resolve(root), path.join(pluginsDir, "lazyagentic")]) {
+			if (!abs.startsWith(pRoot + path.sep)) continue;
+			const rel = path.relative(pRoot, abs).replace(/\\/g, "/");
+			if (/^(AGENTS\.md|GEMINI\.md|RULES\.md|_entry\.md|README\.md|CLAUDE\.md|CHARTER\.md|NOTICE|rules\/|docs\/|skills\/|agents\/|templates\/|contracts\/|enforced\/)/.test(rel)) {
+				return true;
+			}
+		}
+		return false;
 	} catch {
 		return false;
 	}
+}
+
+const AGENT_INTERNAL_FILE_RE = /^(AGENTS\.md|CLAUDE\.md|GEMINI\.md|CHANNELS\.md|pins\.md|ulw-scope\.md|scope\.md|brief\.md|claim-graph\.md|sources-ledger\.md|expansion-log\.md|intent-diff\.md|observation-manifest\.md|debate-log\.md|verification-economics\.md|cause-disappearance\.md|excursion-log\.md|design-spec\.md|outcome\.json|audit\.json|audit_trail\.jsonl|processing_receipt\.json)$/i;
+
+function isAgentInternalFile(targetFile) {
+	if (!targetFile) return false;
+	const norm = targetFile.replace(/\\/g, "/");
+	if (/(?:^|\/)\.lazyargon\//i.test(norm) || /(?:^|\/)\.omo\//i.test(norm) || /(?:^|\/)\.lazyforensic\//i.test(norm)) {
+		return true;
+	}
+	const base = path.basename(targetFile);
+	return AGENT_INTERNAL_FILE_RE.test(base);
 }
 
 const READ_CAP_BYTES = 2 * 1024 * 1024;
@@ -380,7 +399,7 @@ function readSamples(filePath) {
 }
 
 function shouldAudit(filePath) {
-	if (isPluginInternalDoc(filePath)) return false;
+	if (isPluginInternalDoc(filePath) || isAgentInternalFile(filePath)) return false;
 	if (!/\.(md|html|txt)$/i.test(filePath)) return false;
 	if (LEGAL_TRIGGER_RE.test(filePath)) return true;
 	if (fs.existsSync(filePath)) {

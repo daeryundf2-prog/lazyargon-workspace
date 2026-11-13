@@ -43,3 +43,4 @@ ${PLUGIN_ROOT}/scripts/py ${PLUGIN_ROOT}/scripts/bind_court_pdf.py \
 - 바인더 합본은 **편집본**이다 — 원본 각각의 SHA-256은 그대로 증거설명서에
   기재하고, 합본 자체의 해시가 필요하면 `certify_evidence_file.py`로 별도
   인증한다.
+- **표찰(`stamp_evidence.py`)·Bates 번호 및 A4 여백 안전구역 (`print-paged-media.md` §8)**: HTML/PDF로 생성한 서증을 표찰·바인더 병합할 때는 우측 상단 호증 박스(`y = 20pt..44pt`)가 문서 헤더 우측 메타라인과 겹치지 않도록 상단 여백을 최소 `16–18mm` 확보(또는 우측 상단 스탬프 영역 비움)하고, 하단 중앙 Bates 번호(`P-0001`, `y = height - 34pt..-6pt`)가 바닥글 텍스트와 겹치지 않도록 `.sheet-footer`는 중앙을 비운 좌/우 2열 배치로 조판한다.

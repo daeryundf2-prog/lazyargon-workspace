@@ -422,9 +422,33 @@ def check_hash_file_binding(report_text: str, evidence_pairs: dict[str, list[str
                 continue  # 미등록 해시는 기존 '근거 없는 해시' 검사가 처리
             abs_pos = line_offsets[li] + m.start()
             in_tag = _in_evidence_tag(abs_pos)
-            # 해시와 파일명이 인접(같은 줄 또는 ±2줄)한 파일명 수집
+            # 해시와 파일명이 인접(같은 줄 또는 ±2줄)한 파일명 수집.
+            # 다중 줄 HTML 표(<tr>...<td>파일명</td>...</tr> + <tr class="row-sub">...해시...</tr>)에서는
+            # 현재 <tr> 시작(보조행 row-sub/colspan 이면 직전 부모 <tr> 시작, 최대 14줄)까지 탐색하되
+            # 다른 데이터 <tr> 경계는 넘지 않는다.
             window_files: set[str] = set()
-            window_lines_range = range(max(0, li - 2), min(len(lines), li + 3))
+            lo = max(0, li - 2)
+            hi = min(len(lines), li + 3)
+            if any(
+                "<td" in lines[k].lower() or "<tr" in lines[k].lower()
+                for k in range(max(0, li - 3), min(len(lines), li + 2))
+            ):
+                tr_starts: list[int] = []
+                for k in range(li, max(-1, li - 14), -1):
+                    if re.search(r"<tr\b", lines[k], re.IGNORECASE):
+                        tr_starts.append(k)
+                        is_sub = bool(
+                            re.search(r"row-sub|colspan", "\n".join(lines[k : li + 1]), re.IGNORECASE)
+                        )
+                        if not is_sub or len(tr_starts) >= 2:
+                            break
+                if tr_starts:
+                    lo = tr_starts[-1]
+                for k in range(li, min(len(lines), li + 6)):
+                    if re.search(r"</tr\s*>", lines[k], re.IGNORECASE):
+                        hi = k + 1
+                        break
+            window_lines_range = range(lo, hi)
             window_text_norm = "\n".join(lines[wli] for wli in window_lines_range).casefold()
             for wli in window_lines_range:
                 window_files.update(_extract_line_file_tokens(lines[wli]))

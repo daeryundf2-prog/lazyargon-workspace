@@ -480,9 +480,13 @@ function ledgerCandidate(targetFile) {
 	return candidates.find((p) => fs.existsSync(p));
 }
 
-// evidence 자동 탐색: 보고서 디렉터리·현재 작업 디렉터리 우선, 없을 때만 플러그인 루트 폴백
+// evidence 자동 탐색: 보고서 디렉터리·현재 작업 디렉터리 우선, 없을 때만(플러그인 내부 문서에 한해) 플러그인 루트 폴백
 function evidenceCandidates(targetFile) {
-	const dir = path.dirname(path.resolve(targetFile));
+	const absTarget = path.resolve(targetFile);
+	const dir = path.dirname(absTarget);
+	const rootAbs = path.resolve(root);
+	const inPluginRoot = absTarget === rootAbs || absTarget.startsWith(rootAbs + path.sep);
+	const cwdAbs = path.resolve(process.cwd());
 	const seen = new Set();
 	const dedup = (arr) => arr.filter((p) => {
 		const res = path.resolve(p);
@@ -490,13 +494,19 @@ function evidenceCandidates(targetFile) {
 		seen.add(res);
 		return true;
 	});
-	const local = dedup([
+	const cands = [
 		join(dir, 'audit.json'),
 		join(dir, '.lazyforensic', 'audit_trail.jsonl'),
-		join(process.cwd(), 'audit.json'),
-		join(process.cwd(), '.lazyforensic', 'audit_trail.jsonl'),
-	]);
+	];
+	if (inPluginRoot || cwdAbs !== rootAbs) {
+		cands.push(
+			join(cwdAbs, 'audit.json'),
+			join(cwdAbs, '.lazyforensic', 'audit_trail.jsonl'),
+		);
+	}
+	const local = dedup(cands);
 	if (local.length > 0) return local;
+	if (!inPluginRoot) return [];
 	return dedup([
 		join(root, 'audit.json'),
 		join(root, '.lazyforensic', 'audit_trail.jsonl'),

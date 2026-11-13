@@ -12,8 +12,10 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { stdin } from 'node:process';
 
 const LOOKUP_CMD_RE = /(^|[\s;&|(])(grep|rg|ag|find|fd|ls|cat|head|tail|stat|test\s+-[edf]|which|command\s+-v|type|mdfind|locate|sqlite3|pip3?\s+show|python3?\s+-c\s+["']?\s*import|curl|wget|git\s+(show|log|grep|ls-files)|dir|Test-Path|Get-ChildItem|Get-Item|Get-Content|Select-String|Get-Command|Resolve-Path|gci|gc|sls|where(?:\.exe)?|findstr)\b/i;
+const NON_LOOKUP_PRIMARY_RE = /^\s*(?:(?:\$env:[^;\n]+;\s*)|(?:[A-Za-z_]\w*=\S+\s+))*(?:["']?(?:[^"'\n]*[\\/])?Google\\?\s+Chrome(?:["'.]|\b)|cp\b|mv\b|git\s+(?:-\S+\s+)*clone\b)/i;
 const LOOKUP_TOOL_RE = /^(read_file|ReadFile|Read|view_file|view_file_outline|list_dir|grep_search|find_by_name|search_web|read_url_content|codebase_search|view_code_item)$/i;
 const FAILED_RE = /No such file or directory|cannot (?:find|access|open)|not found|ModuleNotFoundError|No module named|ImportError|Permission denied|Operation not permitted|does not exist|could not be found|No results found|\b0 results\b|Found 0\b|no matches|exited with code [12]\b|exit (?:code|status) [12]\b|HTTP (?:403|404|410)|404 Not Found|ObjectNotFound|ItemNotFoundException|PathNotFound|CommandNotFoundException|경로를 찾을 수 없|찾을 수 없습니다|지정된 파일을 찾을 수 없|인식되지 않습니다/i;
 // PowerShell Test-Path 는 없는 경로에 오류 대신 exit 0 + 'False' 한 줄을 낸다(Windows 실측 보고, 2026-11-02).
@@ -31,12 +33,39 @@ const SCRIPT_RUN_RE = /^\s*(?:\$env:[^;\n]+;\s*)*(?:python3?|py|node)(?:\.exe)?\
 const EXIT_CODE_RE = /exited with code \d+|exit (?:code|status) \d+/gi;
 const READ_FAIL_RE = /^(?:cat|head|tail|type|more|Get-Content|gc)\s*:.*|ItemNotFoundException|PathNotFound|ObjectNotFound|cannot find the (?:file|path) specified|지정된 (?:파일을|경로를) 찾을 수 없|exited with code [12]\b/im;
 
-function readStdin() {
-	try {
-		return fs.readFileSync(0, 'utf8');
-	} catch {
-		return '';
-	}
+const TAIL_FALLBACK_BYTES = 512 * 1024;
+
+function readStdin(limitMs = 1500) {
+	return new Promise((resolve) => {
+		if (stdin.isTTY) {
+			resolve('');
+			return;
+		}
+		const chunks = [];
+		let settled = false;
+		const finish = (value) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			try { stdin.pause(); } catch {}
+			stdin.removeAllListeners();
+			resolve(value);
+		};
+		const timer = setTimeout(() => finish(Buffer.concat(chunks).toString('utf8')), limitMs);
+		if (typeof timer.unref === 'function') timer.unref();
+		stdin.on('data', (chunk) => {
+			chunks.push(chunk);
+			const acc = Buffer.concat(chunks).toString('utf8').trim();
+			if ((acc.startsWith('{') && acc.endsWith('}')) || (acc.startsWith('[') && acc.endsWith(']'))) {
+				try {
+					JSON.parse(acc);
+					finish(acc);
+				} catch {}
+			}
+		});
+		stdin.on('end', () => finish(Buffer.concat(chunks).toString('utf8')));
+		stdin.on('error', () => finish(''));
+	});
 }
 
 function transcriptPath(p) {
@@ -46,60 +75,77 @@ function transcriptPath(p) {
 	return cands.find((c) => c && fs.existsSync(c));
 }
 
+function readTailSteps(tp, maxBytes = 32 * 1024) {
+	const stat = fs.statSync(tp);
+	let text;
+	let complete = true;
+	if (stat.size <= maxBytes) {
+		text = fs.readFileSync(tp, 'utf8');
+	} else {
+		const fd = fs.openSync(tp, 'r');
+		try {
+			const buf = Buffer.allocUnsafe(maxBytes);
+			fs.readSync(fd, buf, 0, maxBytes, stat.size - maxBytes);
+			const nlIdx = buf.indexOf(0x0a);
+			complete = nlIdx >= 0 && nlIdx < maxBytes - 1;
+			text = (nlIdx >= 0 ? buf.subarray(nlIdx + 1) : buf).toString('utf8');
+		} finally {
+			fs.closeSync(fd);
+		}
+	}
+	const steps = text.split(/\r?\n/).filter(Boolean).map((l) => {
+		try {
+			return JSON.parse(l);
+		} catch {
+			return null;
+		}
+	}).filter(Boolean);
+	if ((!complete || !steps.some((s) => s.type === 'PLANNER_RESPONSE')) && stat.size > maxBytes && maxBytes < TAIL_FALLBACK_BYTES) {
+		return readTailSteps(tp, TAIL_FALLBACK_BYTES);
+	}
+	return steps;
+}
+
 // PostToolUse 시점에는 방금 호출한 도구의 출력이 아직 transcript 에 없을 수 있다(실세션 2026-11-01).
 // 그래서 '출력 단계 + 그 직전 PLANNER_RESPONSE 의 명령'을 짝지어, 아직 경고하지 않은 실패 출력을 그 명령 이름으로 보고한다.
 function failedSteps(p) {
 	const tp = transcriptPath(p);
 	if (!tp) return [];
-	const fd = fs.openSync(tp, 'r');
-	try {
-		const size = fs.fstatSync(fd).size;
-		const len = Math.min(size, 512 * 1024);
-		const buf = Buffer.alloc(len);
-		fs.readSync(fd, buf, 0, len, size - len);
-		const steps = buf.toString('utf8').split('\n').filter(Boolean).map((l) => {
-			try {
-				return JSON.parse(l);
-			} catch {
-				return null;
-			}
-		}).filter(Boolean);
-		let start = 0;
-		for (let i = steps.length - 1; i >= 0; i--) if (steps[i].type === 'USER_INPUT') { start = i; break; }
-		const out = [];
-		// 한 응답에 도구를 여러 개 부르면 출력 단계도 그 순서대로 나온다. k 번째 출력은 k 번째 호출의 것이다
-		// (이전에는 전부 첫 호출에 붙여 read_file 뒤 run_command 출력을 read_file 실패로 읽었다).
-		// 호출보다 출력 단계가 많으면(실행 중 스냅샷 + 완료 출력) 남는 출력은 마지막 호출의 것이다(실제 기록 15건, 적대적 리뷰 2026-11-03).
-		let pending = [];
-		let lastCall = null;
-		for (const s of steps.slice(start)) {
-			if (s.type === 'PLANNER_RESPONSE' && Array.isArray(s.tool_calls) && s.tool_calls.length) pending = [...s.tool_calls];
-			if (s.type !== 'GENERIC') continue;
-			if (pending.length) lastCall = pending.shift();
-			if (!lastCall) continue;
-			const name = String(lastCall.name || '');
-			const cmd = String(lastCall.args?.CommandLine || lastCall.args?.command || '');
-			if (!(LOOKUP_TOOL_RE.test(name) || (/run_command|bash|shell/i.test(name) && LOOKUP_CMD_RE.test(cmd)))) continue;
-			const body = String(s.content || '');
-			const errText = `${s.error || ''}\n${body}`;
-			let m;
-			// 단계 status 가 있으면 그것만 믿는다: 본문 첫머리에 'Encountered error …' 를 담은 파일(대화 기록 등)을 열어도 성공이다.
-			if (CONTENT_TOOL_RE.test(name)) m = (s.status ? s.status === 'ERROR' : TOOL_ERROR_RE.test(body.slice(0, 300))) ? errText.match(FAILED_RE) || ['tool error'] : null;
-			else if (READ_CMD_RE.test(cmd)) m = body.match(READ_FAIL_RE);
-			else if (SCRIPT_RUN_RE.test(cmd)) m = body.replace(EXIT_CODE_RE, '').match(FAILED_RE);
-			else m = body.match(FAILED_RE) || (/Test-Path/i.test(cmd) && TEST_PATH_FALSE_RE.test(body) ? ['Test-Path False'] : null);
-			if (m) out.push({ step: Number(s.step_index), tool: name, what: (cmd || JSON.stringify(lastCall.args || {})).replace(/\s+/g, ' ').slice(0, 160), failure: m[0] });
-		}
-		return out;
-	} finally {
-		fs.closeSync(fd);
+	const steps = readTailSteps(tp);
+	let start = 0;
+	for (let i = steps.length - 1; i >= 0; i--) if (steps[i].type === 'USER_INPUT') { start = i; break; }
+	const out = [];
+	// 한 응답에 도구를 여러 개 부르면 출력 단계도 그 순서대로 나온다. k 번째 출력은 k 번째 호출의 것이다
+	// (이전에는 전부 첫 호출에 붙여 read_file 뒤 run_command 출력을 read_file 실패로 읽었다).
+	// 호출보다 출력 단계가 많으면(실행 중 스냅샷 + 완료 출력) 남는 출력은 마지막 호출의 것이다(실제 기록 15건, 적대적 리뷰 2026-11-03).
+	let pending = [];
+	let lastCall = null;
+	for (const s of steps.slice(start)) {
+		if (s.type === 'PLANNER_RESPONSE' && Array.isArray(s.tool_calls) && s.tool_calls.length) pending = [...s.tool_calls];
+		if (s.type !== 'GENERIC') continue;
+		if (pending.length) lastCall = pending.shift();
+		if (!lastCall) continue;
+		const name = String(lastCall.name || '');
+		const cmd = String(lastCall.args?.CommandLine || lastCall.args?.command || '');
+		if (/run_command|bash|shell/i.test(name) && NON_LOOKUP_PRIMARY_RE.test(cmd)) continue;
+		if (!(LOOKUP_TOOL_RE.test(name) || (/run_command|bash|shell/i.test(name) && LOOKUP_CMD_RE.test(cmd)))) continue;
+		const body = String(s.content || '');
+		const errText = `${s.error || ''}\n${body}`;
+		let m;
+		// 단계 status 가 있으면 그것만 믿는다: 본문 첫머리에 'Encountered error …' 를 담은 파일(대화 기록 등)을 열어도 성공이다.
+		if (CONTENT_TOOL_RE.test(name)) m = (s.status ? s.status === 'ERROR' : TOOL_ERROR_RE.test(body.slice(0, 300))) ? errText.match(FAILED_RE) || ['tool error'] : null;
+		else if (READ_CMD_RE.test(cmd)) m = body.match(READ_FAIL_RE);
+		else if (SCRIPT_RUN_RE.test(cmd)) m = body.replace(EXIT_CODE_RE, '').match(FAILED_RE);
+		else m = body.match(FAILED_RE) || (/Test-Path/i.test(cmd) && TEST_PATH_FALSE_RE.test(body) ? ['Test-Path False'] : null);
+		if (m) out.push({ step: Number(s.step_index), tool: name, what: (cmd || JSON.stringify(lastCall.args || {})).replace(/\s+/g, ' ').slice(0, 160), failure: m[0] });
 	}
+	return out;
 }
 
-function main() {
+async function main() {
 	let p = {};
 	try {
-		p = JSON.parse(readStdin() || '{}');
+		p = JSON.parse((await readStdin(1500)) || '{}');
 	} catch {
 		p = {};
 	}
@@ -120,16 +166,23 @@ function main() {
 		// 첫 기록
 	}
 	const fresh = failedSteps(p).filter((f) => !seen.has(`${conv}#${f.step}`));
-	if (!fresh.length) return;
-	try {
-		fs.mkdirSync(path.dirname(ledger), { recursive: true });
-		for (const f of fresh) fs.appendFileSync(ledger, `${JSON.stringify({ ts: new Date().toISOString(), conversationId: conv, ...f })}\n`);
-	} catch {
-		// 기록 실패는 경고 자체를 막지 않는다
+	if (fresh.length) {
+		try {
+			fs.mkdirSync(path.dirname(ledger), { recursive: true });
+			for (const f of fresh) fs.appendFileSync(ledger, `${JSON.stringify({ ts: new Date().toISOString(), conversationId: conv, ...f })}\n`);
+		} catch {
+			// 기록 실패는 무시
+		}
+		if (process.env.LAZYARGON_LOOKUP_WARN !== '0') {
+			const lines = fresh.map((f) => `- ${f.what} → ${f.failure}`).join('\n');
+			process.stderr.write(`[LOOKUP GUARD] WARN — 실패하거나 0건이었던 조회:\n${lines}\n이 조회가 본 범위(그 경로·이름·검색어)에 대해서만 말할 수 있다. 예: '그 경로에 파일 없음'은 되지만 '기능이 없다'로 넓히지 말 것. 더 넓게 말하려면 다른 방법으로 확인하거나 '확인하지 못함'으로 적는다.\n`);
+		}
 	}
-	const lines = fresh.map((f) => `- ${f.what} → ${f.failure}`).join('\n');
-	process.stderr.write(`[LOOKUP GUARD] WARN — 실패하거나 0건이었던 조회:\n${lines}\n이 조회가 본 범위(그 경로·이름·검색어)에 대해서만 말할 수 있다. 예: '그 경로에 파일 없음'은 되지만 '기능이 없다'로 넓히지 말 것. 더 넓게 말하려면 다른 방법으로 확인하거나 '확인하지 못함'으로 적는다.\n`);
+	process.stdout.write('{}\n');
+	process.exit(0);
 }
 
-main();
-process.stdout.write('{}\n');
+main().catch(() => {
+	process.stdout.write('{}\n');
+	process.exit(0);
+});

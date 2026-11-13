@@ -481,7 +481,8 @@ def main(argv=None):
         tl_text = ""
         if args.timeline and Path(args.timeline).is_file():
             tl_text = Path(args.timeline).read_text(encoding="utf-8", errors="replace")
-        grounding = check_source_grounding(text, args.sources, tl_text)
+        merged_sources = list(dict.fromkeys([*(args.sources or []), *(args.evidence or [])]))
+        grounding = check_source_grounding(text, merged_sources, tl_text)
         errors.extend(f"[원본 대조] {e}" for e in grounding["errors"])
         warnings.extend(f"[원본 대조] {w}" for w in grounding["warnings"])
     # 5-5) Local High-Fidelity 비파라메트릭 게이트 (Section 4.2; Vertex API 호출 없음)
@@ -528,25 +529,45 @@ def main(argv=None):
             # 원본 자료 텍스트도 근거로 본다. audit.json 만 보면 원본에 있는 화자 이름까지 '증거에 없는 용어'로
             # 경고했다(실세션 2026-11-01: '김민수', '금액').
             src_texts = []
+            if getattr(args, "timeline", None) and Path(args.timeline).is_file():
+                src_texts.append(Path(args.timeline).read_text(encoding="utf-8", errors="replace"))
             for sd in (getattr(args, "sources", None) or []):
                 sp = Path(sd)
                 files = [sp] if sp.is_file() else sorted(sp.rglob("*")) if sp.is_dir() else []
                 for fp in files[:200]:
-                    if fp.is_file() and fp.suffix.lower() in {".txt", ".md", ".csv", ".json", ".log"} and fp.stat().st_size < 5_000_000:
-                        src_texts.append(fp.read_text(encoding="utf-8", errors="replace"))
+                    if fp.is_file() and fp.suffix.lower() in {".txt", ".md", ".csv", ".json", ".log", ".vtt", ".srt"} and fp.stat().st_size < 5_000_000:
+                        raw_src = fp.read_text(encoding="utf-8", errors="replace")
+                        if fp.suffix.lower() in {".vtt", ".srt"}:
+                            dedup_vtt: list[str] = []
+                            for ln in raw_src.splitlines():
+                                s = re.sub(r"<[^>]+>", "", ln).strip()
+                                if not s or s.startswith(("WEBVTT", "Kind:", "Language:", "NOTE")) or "-->" in s or s.isdigit():
+                                    continue
+                                if not dedup_vtt or s != dedup_vtt[-1]:
+                                    dedup_vtt.append(s)
+                            raw_src = "\n".join(dedup_vtt)
+                        src_texts.append(raw_src)
             combined_ev = "\n".join([combined_ev, *src_texts])
             if combined_ev.strip():
+                import html as _html
+                text_no_style = re.sub(
+                    r"<(?:style|script)\b[^>]*>[\s\S]*?</(?:style|script)>",
+                    " ",
+                    text,
+                    flags=re.IGNORECASE,
+                )
+                text_plain = _html.unescape(re.sub(r"<[^>]+>", " ", text_no_style))
                 finding_section_match = re.search(
                     r"(?:^|\n)\s*(?:#{1,4}\s*|\d+[\.\)]\s*|제\s*\d+\s*조?\s*|\b|【|\[)?\s*(?:\d+[\.\)]\s*)?"
                     r"(?:감정\s*결과|감정\s*대상물|분석\s*내용|타임라인\s*분석|상세\s*분석|해시\s*검증|증거\s*분석)\b[^\n]*\n?"
                     r"(.*?)"
-                    r"(?=\n#{1,2}\s*(?:종합\s*의견|의견|서명|결론|비고|첨부)|\Z)",
-                    text,
+                    r"(?=\n\s*(?:#{1,2}\s*)?(?:종합\s*의견|의견|서명|결론|비고|첨부)|\Z)",
+                    text_plain,
                     re.DOTALL,
                 )
-                eval_target = finding_section_match.group(1) if finding_section_match else text
-                clean_rep = re.sub(r"<[^>]+>", " ", eval_target)
-                clean_ev = re.sub(r"<[^>]+>", " ", combined_ev)
+                eval_target = finding_section_match.group(1) if finding_section_match else text_plain
+                clean_rep = re.sub(r"(?<=\d),(?=\d{3}\b)", "", eval_target)
+                clean_ev = re.sub(r"(?<=\d),(?=\d{3}\b)", "", re.sub(r"<[^>]+>", " ", combined_ev))
                 thresh = 0.70 if args.high_fidelity else 0.55
                 grounding_res = calculate_forensic_grounding(clean_ev, clean_rep, threshold=thresh, filter_procedural=True)
                 if not grounding_res["is_grounded"]:

@@ -49,3 +49,4 @@ ${PLUGIN_ROOT}/scripts/py scripts/bench_parser.py --docs 20 --pages 30 --json
 
 - **HWP 5.0 호환성 보장**: 의뢰인 또는 법원 환경에 따라 구형 한컴오피스 뷰어나 폴라리스 오피스에서 XML 기반 `.hwpx` 파일이 열리지 않거나 깨지는 현상("안켜진다 hwp로 만들어줘")이 발생할 수 있습니다.
 - 의뢰인 배포용 문서나 법원 제출용 서식 개편 시 기본적으로 구형 환경 호환성이 검증된 **순수 HWP 5.0 (`.hwp`)** OLE 바이너리 규격 생성을 우선 고려하거나, HWPX와 HWP 양쪽 포맷을 함께 확인하여 전달합니다.
+- **추출 표를 A4 HTML/PDF 보고서로 재조판할 때 (`print-paged-media.md` §8)**: `parse_korean_doc.py`로 추출한 공문서·감정서 표(`tables`)를 A4 HTML/PDF로 렌더링할 때는 `table { table-layout: fixed; width: 100%; }`와 `<colgroup>` 열 너비를 고정하고, 수치·바이트·금액 열은 `.num { text-align: right; font-variant-numeric: tabular-nums; }`, 긴 파일명·경로·해시는 `.file-cell { overflow-wrap: anywhere; word-break: break-all; }` 또는 2단 서브행(`tr.row-sub`)으로 배치하여 셀 수직 공백(`layout_cell_void_imbalance`)과 Chromium 인쇄 자동 축소(`layout_print_shrink_risk`)를 차단합니다.

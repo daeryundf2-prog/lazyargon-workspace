@@ -8,7 +8,9 @@
  *   wrap <cmd> [args...]  PostToolUse: run the guard with the hook stdin; on a non-zero exit queue its
  *                         message under the conversation id (also a passing guard's "<GUARD> WARN"
  *                         stderr, as a warning); always print {} and exit 0.
- *   inject                PreInvocation: consume this conversation's queue and inject it as an
+ *   batch <g1.mjs> [...]  PostToolUse: read stdin once, skip guards whose target extension does not match
+ *                         an inline targetFile, and run matching guards sequentially in one dispatcher.
+ *   inject [--if-no-lazyargon]  PreInvocation: consume this conversation's queue and inject it as an
  *                         ephemeral message before the next model call.
  * Queue dir: $LAZYARGON_FEEDBACK_DIR or ~/.lazyargon/feedback/<conversationId>.jsonl
  */
@@ -16,20 +18,48 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { stdin } from 'node:process';
+import { fileURLToPath } from 'node:url';
 
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MAX_MESSAGE_CHARS = 4000;
 const PASSING_WARN_RE = /\[[A-Z ]*GUARD\] WARN/;
+const TARGET_KEY_RE = /^(file_path|filepath|path|target|target_file|targetfile|target_path|targetpath|output|file|filename)$/i;
+const INLINE_REDIRECT_RE = /(?:>|>>)\s*([^\s|&;"'`]+\.[a-z0-9]{1,10})\b/i;
 
-function feedbackDir() {
-	return process.env.LAZYARGON_FEEDBACK_DIR || path.join(os.homedir(), '.lazyargon', 'feedback');
+const feedbackDir = () => process.env.LAZYARGON_FEEDBACK_DIR || path.join(os.homedir(), '.lazyargon', 'feedback');
+const queuePath = (id) => path.join(feedbackDir(), `${id}.jsonl`);
+
+function print(obj) {
+	process.stdout.write(`${JSON.stringify(obj)}\n`);
+	process.exit(0);
 }
 
-function readStdin() {
-	try {
-		return fs.readFileSync(0, 'utf8');
-	} catch {
-		return '';
-	}
+function readStdin(limitMs = 1500) {
+	return new Promise((resolve) => {
+		if (stdin.isTTY) return resolve('');
+		const chunks = [];
+		let settled = false;
+		const finish = (value) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			try { stdin.pause(); } catch {}
+			stdin.removeAllListeners();
+			resolve(value);
+		};
+		const timer = setTimeout(() => finish(Buffer.concat(chunks).toString('utf8')), limitMs);
+		if (typeof timer.unref === 'function') timer.unref();
+		stdin.on('data', (chunk) => {
+			chunks.push(chunk);
+			const acc = Buffer.concat(chunks).toString('utf8').trim();
+			if ((acc.startsWith('{') && acc.endsWith('}')) || (acc.startsWith('[') && acc.endsWith(']'))) {
+				try { JSON.parse(acc); finish(acc); } catch {}
+			}
+		});
+		stdin.on('end', () => finish(Buffer.concat(chunks).toString('utf8')));
+		stdin.on('error', () => finish(''));
+	});
 }
 
 function conversationIdOf(raw) {
@@ -41,24 +71,73 @@ function conversationIdOf(raw) {
 	}
 }
 
-function queuePath(id) {
-	return path.join(feedbackDir(), `${id}.jsonl`);
+function unquoteVal(val) {
+	if (typeof val !== 'string') return '';
+	const t = val.trim();
+	if (t.length >= 2 && t.startsWith('"') && t.endsWith('"')) {
+		try {
+			const parsed = JSON.parse(t);
+			if (typeof parsed === 'string') return parsed;
+		} catch {
+			return t.slice(1, -1);
+		}
+	}
+	return val;
 }
 
-function print(obj) {
-	process.stdout.write(`${JSON.stringify(obj)}\n`);
-	process.exit(0);
+function collectInlineTargets(node, out) {
+	if (Array.isArray(node)) {
+		for (const item of node) collectInlineTargets(item, out);
+		return;
+	}
+	if (!node || typeof node !== 'object') return;
+	for (const [key, value] of Object.entries(node)) {
+		if (typeof value === 'string' && value) {
+			if (key === 'Target' && ('Path' in node || 'Replacement' in node)) continue;
+			if (TARGET_KEY_RE.test(key)) out.push({ value: unquoteVal(value), isCmd: false });
+			else if (/^(command|cmd|command_line|commandline|script)$/i.test(key)) out.push({ value: unquoteVal(value), isCmd: true });
+		} else if (value && typeof value === 'object') {
+			collectInlineTargets(value, out);
+		}
+	}
 }
 
-function wrap(argv) {
-	const raw = readStdin();
-	const [cmd, ...args] = argv;
-	if (!cmd) print({});
-	const res = spawnSync(cmd, args, { input: raw, encoding: 'utf8' });
+function extractInlineTarget(raw) {
+	const envTarget = process.env.ANTIGRAVITY_TARGET_FILE || process.env.TARGET_FILE || '';
+	if (envTarget) return envTarget;
+	for (const src of [process.env.ANTIGRAVITY_TOOL_INPUT, process.env.TOOL_INPUT, raw]) {
+		if (!src) continue;
+		try {
+			const parsed = JSON.parse(src);
+			const found = [];
+			collectInlineTargets(parsed, found);
+			for (const { value, isCmd } of found) {
+				if (!isCmd && value) return value;
+				if (isCmd && value) {
+					const m = value.match(INLINE_REDIRECT_RE);
+					if (m) return m[1];
+				}
+			}
+		} catch {}
+	}
+	return '';
+}
+
+function shouldSkipGuard(guardPath, inlineTarget) {
+	if (!inlineTarget || !/\.[a-z0-9]{1,10}$/i.test(inlineTarget)) return false;
+	const base = path.basename(guardPath);
+	if (base === 'markdown_structure_guard.mjs') return !/\.md$/i.test(inlineTarget);
+	if (base === 'json_schema_guard.mjs') return !/\.json$/i.test(inlineTarget);
+	if (base === 'hallucination_guard.mjs' || base === 'legal_factuality_guard.mjs' || base === 'slop_guard.mjs') {
+		return !/\.(?:md|html|txt)$/i.test(inlineTarget);
+	}
+	return false;
+}
+
+function queueResult(res, guard, raw) {
 	const warnOnly = res.status === 0 && PASSING_WARN_RE.test(res.stderr || '');
-	if (res.status === 0 && !warnOnly) print({});
+	if (res.status === 0 && !warnOnly) return;
 	process.stderr.write(res.stderr || '');
-	const guard = path.basename([...args].reverse().find((a) => /\.(mjs|js|py)$/.test(a)) || cmd);
 	const message =
 		[res.stderr, warnOnly ? '' : res.stdout]
 			.map((s) => (s || '').trim())
@@ -67,7 +146,7 @@ function wrap(argv) {
 	const id = conversationIdOf(raw);
 	if (!id) {
 		process.stderr.write('post_tool_feedback: no conversationId in payload; guard failure not queued\n');
-		print({});
+		return;
 	}
 	try {
 		fs.mkdirSync(feedbackDir(), { recursive: true });
@@ -76,11 +155,41 @@ function wrap(argv) {
 	} catch (err) {
 		process.stderr.write(`post_tool_feedback: queue write failed: ${err.message}\n`);
 	}
+}
+
+async function wrap(argv) {
+	const raw = await readStdin(1500);
+	const [cmd, ...args] = argv;
+	if (!cmd) print({});
+	const res = spawnSync(cmd, args, { input: raw, encoding: 'utf8' });
+	const guard = path.basename([...args].reverse().find((a) => /\.(mjs|js|py)$/.test(a)) || cmd);
+	queueResult(res, guard, raw);
 	print({});
 }
 
-function inject() {
-	const id = conversationIdOf(readStdin());
+async function batch(argv) {
+	const raw = await readStdin(1500);
+	const guards = argv.filter((a) => a && a !== 'node');
+	if (!guards.length) print({});
+	const inlineTarget = extractInlineTarget(raw);
+	for (const guardPath of guards) {
+		if (shouldSkipGuard(guardPath, inlineTarget)) continue;
+		const res = spawnSync(process.execPath, [guardPath], { input: raw, encoding: 'utf8' });
+		queueResult(res, path.basename(guardPath), raw);
+	}
+	print({});
+}
+
+async function inject(argv = []) {
+	const raw = await readStdin(1500);
+	if (
+		argv.includes('--if-no-lazyargon') &&
+		path.basename(path.resolve(HERE, '..')) !== 'lazyargon' &&
+		fs.existsSync(path.resolve(HERE, '..', '..', 'lazyargon', 'hooks.json'))
+	) {
+		print({});
+	}
+	const id = conversationIdOf(raw);
 	if (!id) print({});
 	const queue = queuePath(id);
 	const taken = `${queue}.${process.pid}.taking`;
@@ -123,9 +232,10 @@ function inject() {
 }
 
 const [mode, ...rest] = process.argv.slice(2);
-if (mode === 'wrap') wrap(rest);
-else if (mode === 'inject') inject();
+if (mode === 'wrap') await wrap(rest);
+else if (mode === 'batch') await batch(rest);
+else if (mode === 'inject') await inject(rest);
 else {
-	process.stderr.write('usage: post_tool_feedback.mjs wrap <cmd> [args...] | inject\n');
+	process.stderr.write('usage: post_tool_feedback.mjs wrap <cmd> [args...] | batch <guard.mjs...> | inject [--if-no-lazyargon]\n');
 	process.exit(2);
 }
