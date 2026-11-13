@@ -2,12 +2,14 @@
 // session_start.mjs — SessionStart 훅. GEMINI.md(정적, 캐시 안정)를 앞에, 런타임 상태를 맨 뒤에 붙인다.
 // 런타임 상태: korean_law MCP 준비 상태, 호스트가 보고한 세션 모델(없으면 unknown — 추정하지 않는다),
 // 진행 중인 /ulw 범위 잠금(.lazyargon/ulw-scope.md, 컴팩션 뒤 복구용), 가드 팩 버전.
-import { existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { stdin } from "node:process";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
 const SCOPE_MAX_LINES = 12;
 const PINS_MAX_LINES = 20;
 
@@ -161,8 +163,131 @@ export function minimalContext() {
 	return `# LazyForensic — 런타임 요약\nkorean_law: ${koreanLawStatus()}\n가드 팩: ${guardPackVersion()}`;
 }
 
+// ---------------------------------------------------------------------------
+// Self-update (SessionStart): pull from origin/main when safe to do so.
+// ---------------------------------------------------------------------------
+
+/** Run git in dir; return stdout string on success, null on any error/timeout. */
+function git(dir, args, timeoutMs = 5000) {
+	const r = spawnSync("git", ["-C", dir, ...args], { encoding: "utf8", timeout: timeoutMs });
+	if (r.error || r.signal != null || r.status !== 0) return null;
+	return r.stdout;
+}
+
+/**
+ * Attempt a safe fast-forward self-update of the plugin from origin/main.
+ * Guards: must be on branch main with an origin remote; throttled to once per 6 h;
+ * respects LAZYARGON_WORKSPACE_NO_AUTO_UPDATE=1; never stashes, resets, or touches dirty trees.
+ * Writes one line to errOut (default process.stderr) on update or when behind+blocked.
+ * Never throws; never causes a non-zero exit.
+ *
+ * @param {string}   pluginRoot  Absolute path to the plugin checkout (default: root).
+ * @param {object}   env         Process environment (default: process.env).
+ * @param {object}   errOut      Writable stream for notices (default: process.stderr).
+ */
+export function autoUpdate(pluginRoot = root, env = process.env, errOut = process.stderr) {
+	try {
+		// Opt-out env var.
+		if (env.LAZYARGON_WORKSPACE_NO_AUTO_UPDATE === "1") return;
+
+		// Must be a git checkout on branch main.
+		const branch = git(pluginRoot, ["symbolic-ref", "--short", "HEAD"]);
+		if (!branch || branch.trim() !== "main") return;
+
+		// Must have an origin remote.
+		const remotes = git(pluginRoot, ["remote"]);
+		if (!remotes || !remotes.split("\n").map((s) => s.trim()).includes("origin")) return;
+
+		// Throttle: at most once every 6 hours. The stamp lives inside .git so it never dirties the tree.
+		const gitDirOut = git(pluginRoot, ["rev-parse", "--absolute-git-dir"]);
+		if (!gitDirOut) return;
+		const stateDir = gitDirOut.trim();
+		const stateFile = join(stateDir, "lazyargon-workspace-last-update-check");
+		try {
+			if (existsSync(stateFile)) {
+				const ts = parseInt(readFileSync(stateFile, "utf8").trim(), 10);
+				if (!isNaN(ts) && Date.now() - ts < SIX_HOURS_MS) return;
+			}
+		} catch { /* ignore */ }
+
+		// Record the check time before the fetch (prevents hammering on network errors).
+		try {
+			mkdirSync(stateDir, { recursive: true });
+			writeFileSync(stateFile, String(Date.now()), "utf8");
+		} catch { /* ignore */ }
+
+		// Snapshot HEAD before fetch.
+		const headOut = git(pluginRoot, ["rev-parse", "HEAD"]);
+		if (!headOut) return;
+		const beforeSha = headOut.trim();
+
+		// Fetch with hard <=8 s timeout; any failure stays silent.
+		const fetchResult = spawnSync("git", ["-C", pluginRoot, "fetch", "origin", "main"], {
+			encoding: "utf8",
+			timeout: 8000,
+		});
+		if (fetchResult.error || fetchResult.signal != null || fetchResult.status !== 0) return;
+
+		// What did origin/main land on?
+		const fetchOut = git(pluginRoot, ["rev-parse", "FETCH_HEAD"]);
+		if (!fetchOut) return;
+		const fetchSha = fetchOut.trim();
+
+		// Count commits we're behind; none (up to date or only local commits ahead) stays silent.
+		const countOut = git(pluginRoot, ["rev-list", "--count", `${beforeSha}..${fetchSha}`]);
+		if (countOut === null) return;
+		const n = countOut.trim();
+		if (n === "0") return;
+
+		// Check working-tree cleanliness (porcelain is empty iff no changes and no untracked).
+		const statusOut = git(pluginRoot, ["status", "--porcelain"]);
+		if (statusOut === null) return;
+		const dirty = statusOut.trim().length > 0;
+
+		if (!dirty) {
+			// Try fast-forward merge.
+			const merge = spawnSync("git", ["-C", pluginRoot, "merge", "--ff-only", fetchSha], {
+				encoding: "utf8",
+				timeout: 8000,
+			});
+			if (merge.status === 0 && merge.signal == null && !merge.error) {
+				const old7 = beforeSha.slice(0, 7);
+				const new7 = fetchSha.slice(0, 7);
+				errOut.write(`LazyArgon Workspace updated ${old7}..${new7} (${n} commits)\n`);
+			} else {
+				// History diverged (local commits) — cannot fast-forward.
+				errOut.write(
+					`LazyArgon Workspace: ${n} updates on origin/main; local commits differ, not auto-updated. Run: git -C ${pluginRoot} pull --rebase origin main\n`,
+				);
+			}
+		} else {
+			// Dirty working tree — leave everything alone.
+			errOut.write(
+				`LazyArgon Workspace: ${n} updates on origin/main; local changes present, not auto-updated. Run: git -C ${pluginRoot} stash && git -C ${pluginRoot} pull --ff-only\n`,
+			);
+		}
+	} catch { /* never propagate */ }
+}
+
+
+/** Notices from the background updater go to <git-dir>/lazyargon-workspace-update.log (the hook's stdout is reserved). */
+function updateLog(pluginRoot) {
+	const gitDir = git(pluginRoot, ["rev-parse", "--absolute-git-dir"]);
+	const path = gitDir ? join(gitDir.trim(), "lazyargon-workspace-update.log") : null;
+	return { write: (line) => { try { if (path) appendFileSync(path, `${new Date().toISOString()} ${line}`); } catch { /* ignore */ } } };
+}
+
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+if (isMain && process.argv.includes("--self-update")) {
+	autoUpdate(root, process.env, updateLog(root));
+	process.exit(0);
+}
 if (isMain) {
+	// The SessionStart hook has a 5 s budget, so the update check runs in a detached child after this one exits.
+	try {
+		if (process.env.LAZYARGON_WORKSPACE_NO_AUTO_UPDATE !== "1")
+			spawn(process.execPath, [fileURLToPath(import.meta.url), "--self-update"], { detached: true, stdio: "ignore" }).unref();
+	} catch { /* never block the session */ }
 	const raw = await readStdin(1500);
 	const payload = parsePayload(raw);
 	const useMinimal = process.argv.includes("--minimal") && existsSync(join(root, "..", "lazyargon", "plugin.json"));
