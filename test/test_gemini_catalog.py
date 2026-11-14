@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / "skills"
 MAX_DESCRIPTION = 280
-VISIBLE_SKILL_CAP = 30
+VISIBLE_SKILL_CAP = 31
 
 # 라이선스 검증을 끝내지 못해 본 레포에서 제거된 제3자 트리 (NOTICE 참고)
 REMOVED_TREES = [

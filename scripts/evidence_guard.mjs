@@ -438,6 +438,33 @@ function isReadOnlyInspection(text) {
 		if (isProtectedName(out) || EVIDENCE_SEGMENT_RE.test(out)) return false;
 	}
 	if (!t || t.includes('\n')) return false;              // 멀티라인 스크립트는 판단 불가
+	// 파이프라인 처리: 파이프(|) 포함 시 세미콜론·백틱·$( 없는 경우에만
+	// 각 세그먼트를 개별 검사해 모두 읽기전용이면 허용한다.
+	// 예) strings evidence/disk.bin | tail -1 (브리프 2026-11-14 false positive 수정)
+	// 세미콜론·&·$( 는 체이닝/치환이므로 파이프라인 허용 없이 즉시 차단.
+	if (t.includes('|') && !/[;&`]|\$\(/.test(t)) {
+		const pipeSegs = t.split(/\s*\|\s*/);
+		return pipeSegs.every((seg) => {
+			seg = seg.trim();
+			if (!seg) return false;
+			// 쓰기 신호(>, >>, tee, cp, mv, rm 등)
+			if (WRITE_SIGNS_RE.test(seg)) return false;
+			// 출력 인자(-o/--output)가 증거 경로를 가리키면 차단
+			for (const m of seg.matchAll(OUTPUT_ARG_RE)) {
+				const out = m[1].replace(/^['"]|['"]$/g, '');
+				if (isProtectedName(out) || EVIDENCE_SEGMENT_RE.test(out)) return false;
+			}
+			// 하위 식·스크립트 블록은 쓰기를 숨길 수 있다
+			if (/[(){}]|::/.test(seg)) return false;
+			const firstTok = (seg.split(/[\s"'`]+/)[0] || '').replace(/^\(+/, '');
+			if (!READ_ONLY_VERBS.test(firstTok)) return false;
+			if (/^(python3?|py|node)\b/i.test(firstTok)) {
+				if (/\s(?:-[cme]|--eval)\b/.test(seg)) return false;
+				if (!READONLY_INTERPRETER_SCRIPTS_RE.test(interpreterScript(seg))) return false;
+			}
+			return true;
+		});
+	}
 	if (/[;&|`]|(\$\()/.test(t)) return false;             // 셸 명령 체이닝/치환 차단
 	const firstToken = (t.split(/[\s"'`]+/)[0] || '').replace(/^\(+/, '');
 	if (!READ_ONLY_VERBS.test(firstToken)) return false;

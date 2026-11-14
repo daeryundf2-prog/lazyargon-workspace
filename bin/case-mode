@@ -1,0 +1,26 @@
+#!/bin/sh
+# case-mode — Antigravity case mode CLI wrapper
+# Usage: case-mode init <evidence-path> [--out <case-dir>]
+#        case-mode close [--case <case-dir>]
+# Install: export PATH="$PWD/bin:$PATH"  or  ln -s "$PWD/bin/case-mode" /usr/local/bin/case-mode
+set -eu
+
+SELF="$0"
+case "$SELF" in
+  */*) ;;
+  *) SELF="$(command -v "$SELF")" ;;
+esac
+LINKS=0
+while [ -L "$SELF" ]; do
+  LINKS=$((LINKS + 1))
+  [ "$LINKS" -le 40 ] || { printf '%s\n' 'Symlink resolution limit exceeded' >&2; exit 2; }
+  BASE="$(CDPATH= cd -P "$(dirname "$SELF")" && pwd)"
+  TARGET="$(readlink "$SELF")"
+  case "$TARGET" in
+    /*) SELF="$TARGET" ;;
+    *) SELF="$BASE/$TARGET" ;;
+  esac
+done
+ROOT="$(CDPATH= cd -P "$(dirname "$SELF")/.." && pwd)"
+
+exec node "$ROOT/scripts/case_mode.mjs" "$@"

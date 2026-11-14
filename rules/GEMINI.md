@@ -42,7 +42,7 @@
 
 `설명서`·`도움말`·`명령어 알려줘`·`무엇을 할 수 있어?` 요청 시 `docs/USER_GUIDE.md`만 읽어 예시를 안내하고 분석·파일 생성은 하지 않는다.
 
-### Forensic (14 — 진입점: `skills/lazyforensic/SKILL.md`; BYO 래퍼는 `check_tool.py` 통과 시에만, 미설치 시 결과 생성 안 함)
+### Forensic (15 — 진입점: `skills/lazyforensic/SKILL.md`; BYO 래퍼는 `check_tool.py` 통과 시에만, 미설치 시 결과 생성 안 함)
 
 | 요청 | 스킬 |
 | :--- | :--- |
@@ -62,6 +62,7 @@
 | 메모리 래퍼 (BYO MemProcFS) | `skills/memory-triage/SKILL.md` |
 | AI 사용 흔적 포렌식 (md/txt/E01) | `skills/ai-trace-detector/SKILL.md` |
 | 딥페이크/합성 미디어 (C2PA·FFT·레퍼런스) | `skills/deepfake-forensic-radar/SKILL.md` |
+| E01/증거 폴더 케이스 초기화·샌드박스 격리·hash CoC | `skills/case-mode/SKILL.md` |
 
 ### Visual
 
