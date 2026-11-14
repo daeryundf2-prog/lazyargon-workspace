@@ -1,0 +1,21 @@
+{
+	"_note": "Research sites case mode opens for reading (read_url) and for sandboxed commands. A proposal for the owner to edit; every other site falls back to Antigravity's default (ask). Downloads and browser execution stay denied.",
+	"hosts": [
+		"virustotal.com",
+		"attack.mitre.org",
+		"nvd.nist.gov",
+		"cve.org",
+		"cve.mitre.org",
+		"github.com",
+		"raw.githubusercontent.com",
+		"learn.microsoft.com",
+		"docs.microsoft.com",
+		"malpedia.caad.fkie.fraunhofer.de",
+		"any.run",
+		"hybrid-analysis.com",
+		"abuse.ch",
+		"krcert.or.kr",
+		"boho.or.kr",
+		"kisa.or.kr"
+	]
+}
