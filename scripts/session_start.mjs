@@ -7,6 +7,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { stdin } from "node:process";
 import { fileURLToPath } from "node:url";
+import { lazyargonActive } from "./lazyargon_active.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
@@ -290,7 +291,7 @@ if (isMain) {
 	} catch { /* never block the session */ }
 	const raw = await readStdin(1500);
 	const payload = parsePayload(raw);
-	const useMinimal = process.argv.includes("--minimal") && existsSync(join(root, "..", "lazyargon", "plugin.json"));
+	const useMinimal = process.argv.includes("--minimal") && lazyargonActive(root, "plugin.json");
 	const context = useMinimal ? minimalContext() : additionalContext(payload);
 	if (context) {
 		// Antigravity drops the whole SessionStart output when it carries keys beyond injectSteps

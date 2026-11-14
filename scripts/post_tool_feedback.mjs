@@ -27,6 +27,19 @@ const PASSING_WARN_RE = /\[[A-Z ]*GUARD\] WARN/;
 const TARGET_KEY_RE = /^(file_path|filepath|path|target|target_file|targetfile|target_path|targetpath|output|file|filename)$/i;
 const INLINE_REDIRECT_RE = /(?:>|>>)\s*([^\s|&;"'`]+\.[a-z0-9]{1,10})\b/i;
 
+// Sibling lazyargon installed AND not disabled in Antigravity config.json (unreadable config = installed only).
+// Inlined, not imported: this file is GUARD_PACK and is copied verbatim into lazyargon/scripts.
+function lazyargonActive(pluginRoot, marker) {
+	const pluginsDir = path.resolve(pluginRoot, '..');
+	if (!fs.existsSync(path.join(pluginsDir, 'lazyargon', marker))) return false;
+	const configPath = process.env.LAZYARGON_GEMINI_CONFIG || path.join(pluginsDir, '..', 'config.json');
+	try {
+		return JSON.parse(fs.readFileSync(configPath, 'utf8'))?.plugins?.lazyargon?.enabled !== false;
+	} catch {
+		return true;
+	}
+}
+
 const feedbackDir = () => process.env.LAZYARGON_FEEDBACK_DIR || path.join(os.homedir(), '.lazyargon', 'feedback');
 const queuePath = (id) => path.join(feedbackDir(), `${id}.jsonl`);
 
@@ -185,7 +198,7 @@ async function inject(argv = []) {
 	if (
 		argv.includes('--if-no-lazyargon') &&
 		path.basename(path.resolve(HERE, '..')) !== 'lazyargon' &&
-		fs.existsSync(path.resolve(HERE, '..', '..', 'lazyargon', 'hooks.json'))
+		lazyargonActive(path.resolve(HERE, '..'), 'hooks.json')
 	) {
 		print({});
 	}
