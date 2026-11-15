@@ -55,7 +55,9 @@ from pathlib import Path
 #   {project_root}/skills/humanize-korean/references/metrics.py
 HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = HERE.parent
-METRICS_DIR = PROJECT_ROOT / "skills" / "humanize-korean" / "references"
+_PLUGIN_REFS = PROJECT_ROOT / "skills" / "humanize-korean" / "references"
+_CODEX_REFS = PROJECT_ROOT / "references"
+METRICS_DIR = _PLUGIN_REFS if _PLUGIN_REFS.is_dir() else _CODEX_REFS
 
 # Make metrics.py importable without polluting global state.
 sys.path.insert(0, str(METRICS_DIR))
@@ -75,19 +77,36 @@ except Exception:  # pragma: no cover
 # ---------------------------------------------------------------------------
 
 
-def _next_run_dir(workspace: Path) -> Path:
-    """Allocate _workspace/<today>-NNN/ with the smallest free NNN."""
+def _next_run_dir(workspace: Path, session_tag: str | None = None) -> Path:
+    """Allocate _workspace/<today>-NNN[-<tag>]/ with the smallest free NNN.
+
+    **확인과 생성을 한 번에 한다.** 예전에는 `exists()` 로 빈 자리를 보고 호출부가
+    나중에 mkdir 했다. 그 사이에 다른 프로세스가 같은 이름을 잡으면 두 실행이 한
+    디렉터리를 공유한다 — 뒤에 온 쪽이 앞선 쪽의 `01_input.txt` 를 덮어쓰고,
+    게이트는 *남의 원문과 내 윤문본*을 비교해 있지도 않은 제목·인용이 사라졌다며
+    ABORT 를 낸다. 윤문본 자체는 멀쩡하므로 원인을 찾기가 특히 어렵다.
+
+    `session_tag` 를 주면 이름 뒤에 붙어 세션끼리 번호도 겹치지 않는다.
+    `YYYY-MM-DD-` 접두어는 그대로라 기존 Glob 패턴·정렬은 영향받지 않는다.
+    """
     workspace.mkdir(parents=True, exist_ok=True)
     today = date.today().isoformat()
-    n = 1
-    while True:
-        candidate = workspace / f"{today}-{n:03d}"
-        if not candidate.exists():
+    tag = f"-{session_tag}" if session_tag else ""
+    for n in range(1, 1000):
+        candidate = workspace / f"{today}-{n:03d}{tag}"
+        try:
+            candidate.mkdir(parents=True, exist_ok=False)
             return candidate
-        n += 1
+        except FileExistsError:
+            continue
+    raise SystemExit(
+        f"run dir 자리를 못 찾았다: {workspace}/{today}-NNN{tag} 가 999개까지 찼다"
+    )
 
 
-def _resolve_run_dir(run_dir_arg: str | None, text_arg: str | None) -> Path:
+def _resolve_run_dir(
+    run_dir_arg: str | None, text_arg: str | None, session_tag: str | None = None
+) -> Path:
     """상대 경로는 **cwd** 기준으로 푼다.
 
     이전에는 PROJECT_ROOT(설치 저장소 루트) 기준이었다. SKILL.md 는 "모든 경로는
@@ -115,9 +134,7 @@ def _resolve_run_dir(run_dir_arg: str | None, text_arg: str | None) -> Path:
     if text_arg is None:
         raise SystemExit("Either --run-dir or --text is required")
     workspace = Path.cwd() / "_workspace"
-    rd = _next_run_dir(workspace)
-    rd.mkdir(parents=True, exist_ok=True)
-    return rd
+    return _next_run_dir(workspace, session_tag)  # 생성까지 원자적으로 끝난다
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +203,8 @@ def _load_input(input_path: Path, run_dir: Path, enabled: bool) -> str:
 #
 # 3-tier 판정 (전부 결정적 · 실측 기반):
 #   light    — 카운트형 어휘·피동 티 합 ≤ 2 AND risk_band low~medium.
-#              이미 잘 쓴 글. 단일 콜·최소 파이프라인 권장.
+#              카운터에 잡힌 티가 적은 글. 단일 콜·최소 파이프라인 권장.
+#              ⚠️ "티가 없다"가 아니라 "세는 항목에 안 걸렸다"다(#104).
 #   standard — 그 외 (티가 섞여 있거나, 카운트형 0이어도 구조 지표로 risk high).
 #              진단 + 단일 윤문 권장. 실측 글(카운트 0·risk high)이 여기 온다.
 #   heavy    — risk high AND 카운트형 티 합 ≥ 8 (AI 슬롭 밀집),
@@ -210,6 +228,71 @@ _ROUTE_TELL_KEYS_V2 = (
     "double_particle_count",
 )
 
+# ── v2.6 신형 티 계수 (라우터 실명 방지) ─────────────────────────────
+# 실사고: 저자 추천사(1,124자)가 은유 관통 4회·감각 술어 2회·분열문을 안고도
+# risk low·tells 0으로 light("잘 쓴 글, 최소 수정")에 배정됐다. 위 카운트 키가
+# 전부 v1.6 시절 지표라 v2.6에서 채굴한 티를 하나도 못 세기 때문이다 —
+# 라우터가 못 보는 티는 어떤 경로에서도 고쳐지지 않는다(light는 최소 수정 지시).
+# taxonomy v2.6 채택분 중 정규식화 가능한 것을 직접 센다. 사전은 quick-rules와
+# 동일 어휘(단일 출처는 아니지만 갱신 시 함께 볼 것 — D-8~14·A-20·F-7).
+import re as _re
+
+_V26_ROUTE_PATTERNS = (
+    ("분열문(D-8)", _re.compile(r"(?:필요|중요)한\s*것은|(?:문제는|핵심은|관건은|답은)\s+[^.?!\n]{0,50}(?:점이다|것이다|데\s*있다)")),
+    ("이유다(D-10)", _re.compile(r"이유(?:다|이다|입니다)\.")),
+    ("시간지평(D-11)", _re.compile(r"(?:^|[.!?]\s+)(?:향후|앞으로는?|중?장기적으로는?)(?![가-힣])", _re.M)),
+    ("과제슬롯(D-12)", _re.compile(r"과제도\s*(?:남아\s*있다|남았다|뚜렷하다)|한계도\s*분명하다|아쉬운\s*점도\s*있다")),
+    ("은유가족(D-14)", _re.compile(r"잠식|흡수(?:하|되)|짓누르|삼키|갉아먹|청구서|성적표|대가를\s*치|과실[을이]|씨앗|뿌리내리|청사진|주춧돌|짊어지|신호탄|적신호")),
+    ("감각술어(D-14b)", _re.compile(r"(?:진단|경고|분석|통계|현실|숫자|전망|결론)[은는이가]\s*(?:서늘하|아프|차갑|뜨겁|묵직하|섬뜩하)")),
+    ("피동진행(A-20)", _re.compile(r"(?:되|지)고\s*있(?:다|으며|고|는)")),
+    ("범용동사(F-7)", _re.compile(r"(?:확대|강화|개선|확보|마련|구축)(?:해야|하[여어]야|가\s*필요)")),
+    # D-1 결산 변이형 (#104) — taxonomy D-1 본문·quick_pattern 에 이미 있는 어휘인데
+    # baseline lexicon(결론적으로/따라서/이를 통해/그러므로)에 빠져 라우터가 못 셌다.
+    # "~를 통해" 일반형은 넣지 않는다 — 사람 글이 더 쓴다(최희경 2016 기각과 같은 판단).
+    ("결산변이(D-1)", _re.compile(r"(?:^|[.!?]\s+)(?:요약하면|요컨대|종합하면|정리하자면|결론부터\s*(?:말씀드리면|말하자면|말하면))", _re.M)),
+)
+
+# 서수 열거(C-1) — 문두 "첫째/둘째/셋째", "첫 번째/두 번째"가 문서에 3회 이상일 때만
+# 센다(#104). C-1 처방은 "기본 보존"이라 이 카운트는 윤문 지시가 아니라 라우팅
+# 신호다 — 열거로 짠 글은 진단을 거치게 할 뿐, 열거 표지를 지우라는 뜻이 아니다.
+_ORDINAL_ENUM = _re.compile(
+    r"(?:^|[.!?]\s+|\n)\s*(?:첫째|둘째|셋째|넷째|다섯째|(?:첫|두|세|네|다섯)\s*번째)\s*[,는로]",
+    _re.M,
+)
+ORDINAL_ENUM_MIN = 3
+
+# 관통 은유 — 은유성 동사 어근이 문서에서 3회 이상 반복(가족 사전 밖이어도).
+# ⚠️ 한국어 활용에서 어근이 축약된다 — "쥘"(쥐+ㄹ)은 "쥐"와 다른 음절이라 어근만 매칭하면
+# 놓친다(실사례: 쥐고·쥐여주는·쥘 3회 중 2회만 집계돼 역치 미달). 축약형을 함께 든다.
+_RUNNING_METAPHOR = _re.compile(r"(쥐|쥘|움켜쥐|끌어안|짊어지|떠받치|끌고\s*가|붙들)")
+_METAPHOR_ROOT_ALIAS = {"쥘": "쥐"}
+
+
+def count_v26_tells(text: str) -> tuple[int, dict]:
+    """v2.6 신형 티를 결정적으로 센다. (합계, 항목별) 반환."""
+    per: dict[str, int] = {}
+    total = 0
+    for name, rx in _V26_ROUTE_PATTERNS:
+        n = len(rx.findall(text))
+        if n:
+            per[name] = n
+            total += n
+    run = {}
+    for m in _RUNNING_METAPHOR.finditer(text):
+        root = _METAPHOR_ROOT_ALIAS.get(m.group(1), m.group(1))
+        run[root] = run.get(root, 0) + 1
+    for root, n in run.items():
+        if n >= 3:
+            per[f"관통은유({root})"] = n
+            total += n
+    n = len(_ORDINAL_ENUM.findall(text))
+    if n >= ORDINAL_ENUM_MIN:
+        per["서수열거(C-1)"] = n
+        # 기여는 역치값으로 캡 — 열거가 길다고 heavy 로 밀어 올리지 않는다.
+        # "열거로 짠 글이면 진단을 거친다"까지만 신호로 쓴다.
+        total += ORDINAL_ENUM_MIN
+    return total, per
+
 
 def compute_route_hint(metrics_obj: dict) -> dict:
     """metrics_obj(compute_all 산출)로부터 route_hint 권고를 산출한다.
@@ -224,6 +307,8 @@ def compute_route_hint(metrics_obj: dict) -> dict:
         tells += int(m.get(key) or 0)
     for key in _ROUTE_TELL_KEYS_V2:
         tells += int(v2.get(key) or 0)
+    v26_total, v26_per = count_v26_tells(str(metrics_obj.get("_text") or ""))
+    tells += v26_total
     chars = int(metrics_obj.get("char_count") or 0)
     risk = metrics_obj.get("risk_band", "unknown")
 
@@ -241,8 +326,8 @@ def compute_route_hint(metrics_obj: dict) -> dict:
     elif tells <= ROUTE_LIGHT_MAX_TELLS and risk in ("low", "medium"):
         hint = "light"
         reason = (
-            f"카운트형 어휘·피동 티 {tells}건 · risk_band {risk} — "
-            f"이미 잘 쓴 글, 단일 콜·최소 파이프라인 권장"
+            f"카운트형 티 {tells}건(라우터가 세는 항목 기준) · risk_band {risk} — "
+            f"단일 콜·최소 파이프라인 권장. 카운터 밖 티는 monolith 가 룰북으로 잡는다"
         )
     else:
         hint = "standard"
@@ -254,6 +339,7 @@ def compute_route_hint(metrics_obj: dict) -> dict:
         "route_reason": reason,
         "route_signals": {
             "lexical_tell_count": tells,
+            "v26_tells": v26_per,
             "risk_band": risk,
             "char_count": chars,
         },
@@ -272,10 +358,31 @@ def _fmt_z(z: float | None) -> str:
     return f"z={sign}{z:.2f}"
 
 
-def _z_marker(z: float | None) -> str:
-    """Emit a small star for values clearly above the AI band."""
+# 단순화(simplification) 축 지표는 **낮을 때** AI 티다 — baseline 이 직접 그렇게
+# 적어 둔다(`"interpretation": "low = AI-like (repetition)"`). 그런데 마커가 z 를
+# 부호 그대로 읽어 **가장 어휘가 풍부한(= 가장 사람다운) 글에 "★ S1 트리거"** 를
+# 붙이고 있었다. 모델은 그 표기를 보고 손댈 곳을 찾는다(PR #94 지적).
+# 간섭(interference)·정규화(normalisation) 축은 높을 때 AI 티라 그대로 둔다.
+_INVERTED_METRICS = frozenset(
+    {
+        "lexical_diversity",
+        "lexical_diversity_ttr",
+        "lexical_density",
+        "ending_diversity",
+    }
+)
+
+
+def _z_marker(z: float | None, key: str | None = None) -> str:
+    """Emit a small star for values clearly in the AI band.
+
+    ``key`` 가 단순화 축 지표면 부호를 뒤집어 판정한다. 키를 주지 않으면
+    기존 동작(높을수록 AI 티)을 유지한다.
+    """
     if z is None:
         return ""
+    if key in _INVERTED_METRICS:
+        z = -z
     if z >= 1.5:
         return "  ★ S1 트리거"
     if z >= 1.0:
@@ -355,7 +462,7 @@ def _render_block(metrics_obj: dict) -> str:
             return f"- {key}: n/a"
         z_part = ""
         if with_z:
-            z_part = f"  ({_fmt_z(z.get(key))} vs {metrics_obj.get('genre','essay')} 인간 baseline){_z_marker(z.get(key))}"
+            z_part = f"  ({_fmt_z(z.get(key))} vs {metrics_obj.get('genre','essay')} 인간 baseline){_z_marker(z.get(key), key)}"
         return f"- {key}: {value_fmt.format(val)}{z_part}{suffix}"
 
     lines.append(row("comma_inclusion_rate", "{:.2f}"))
@@ -384,8 +491,28 @@ def _render_block(metrics_obj: dict) -> str:
     return "\n".join(lines)
 
 
+def _lexical_block(text: str, genre: str | None) -> str:
+    """원문에서 발견된 어색한 낱말만 [어휘 점검] 블록으로 (scripts/lexical_layer.py).
+
+    전 경로 공통 입력이라 light 경로(진단 없음)에도 실린다. 사전이 없거나 깨져도
+    윤문을 막지 않는다 — 빈 문자열로 degrade.
+    """
+    try:
+        _here = os.path.dirname(os.path.abspath(__file__))
+        if _here not in sys.path:
+            sys.path.insert(0, _here)
+        from lexical_layer import hint_block_for  # noqa: E402
+
+        return hint_block_for(text, genre)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def _render_combined(
-    text: str, metrics_obj: dict | None, diagnosis: str | None = None
+    text: str,
+    metrics_obj: dict | None,
+    diagnosis: str | None = None,
+    genre: str | None = None,
 ) -> str:
     parts: list[str] = []
     if diagnosis:
@@ -395,6 +522,10 @@ def _render_combined(
         parts.append("")
     if metrics_obj is not None:
         parts.append(_render_block(metrics_obj))
+    lexical = _lexical_block(text, genre)
+    if lexical:
+        parts.append(lexical)
+        parts.append("")
     parts.append("[원문 시작]")
     parts.append(text.rstrip("\n"))
     parts.append("[원문 끝]")
@@ -679,7 +810,7 @@ def _render_chunk_header(index: int, total: int, starts_with_heading: bool) -> s
 
 
 def run_chunk_mode(args: argparse.Namespace, diagnosis: str | None) -> int:
-    run_dir = _resolve_run_dir(args.run_dir, args.text)
+    run_dir = _resolve_run_dir(args.run_dir, args.text, args.session_tag)
     input_path = run_dir / "01_input.txt"
     if args.text is not None:
         input_path.write_text(args.text, encoding="utf-8")
@@ -774,7 +905,9 @@ def run_chunk_mode(args: argparse.Namespace, diagnosis: str | None) -> int:
                     )
             combined = _render_chunk_header(
                 i, total, starts_with_heading
-            ) + _render_combined(chunk_text, metrics_obj, diagnosis=diagnosis)
+            ) + _render_combined(
+                chunk_text, metrics_obj, diagnosis=diagnosis, genre=args.genre
+            )
             (run_dir / entry["input_file"]).write_text(combined, encoding="utf-8")
         entries.append(entry)
 
@@ -827,6 +960,13 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Humanize KR v2.0 monolith input shim")
     p.add_argument("--run-dir", help="Existing run directory (relative ok)")
     p.add_argument("--text", help="Inline text input (creates new run dir)")
+    p.add_argument(
+        "--session-tag",
+        default=None,
+        help="run 디렉터리 이름 뒤에 붙는 세션 구분자(예: a3f9). 한 머신에서 여러 "
+        "세션이 동시에 돌 때 _workspace/<날짜>-NNN 을 서로 덮어쓰는 사고를 막는다. "
+        "--text 로 새 디렉터리를 만들 때만 쓰인다.",
+    )
     p.add_argument("--genre", default="essay", help="Genre hint (default: essay)")
     p.add_argument(
         "--baseline",
@@ -866,7 +1006,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.chunk:
         return run_chunk_mode(args, diagnosis)
 
-    run_dir = _resolve_run_dir(args.run_dir, args.text)
+    run_dir = _resolve_run_dir(args.run_dir, args.text, args.session_tag)
     input_path = run_dir / "01_input.txt"
 
     # Ensure 01_input.txt exists.
@@ -891,7 +1031,10 @@ def main(argv: list[str] | None = None) -> int:
             metrics_obj = _metrics_mod.compute_all(
                 text, genre=args.genre, baseline_path=args.baseline
             )
+            # v2.6 신형 티 계수는 원문이 필요하다 — 직렬화 전에 빼는 내부 키로 전달.
+            metrics_obj["_text"] = text
             metrics_obj.update(compute_route_hint(metrics_obj))
+            metrics_obj.pop("_text", None)
             metrics_path.write_text(
                 json.dumps(metrics_obj, ensure_ascii=False, indent=2),
                 encoding="utf-8",
@@ -912,7 +1055,8 @@ def main(argv: list[str] | None = None) -> int:
 
     combined_path = run_dir / "01_input_with_metrics.txt"
     combined_path.write_text(
-        _render_combined(text, metrics_obj, diagnosis=diagnosis), encoding="utf-8"
+        _render_combined(text, metrics_obj, diagnosis=diagnosis, genre=args.genre),
+        encoding="utf-8",
     )
 
     rb = (metrics_obj or {}).get("risk_band", "absent")
