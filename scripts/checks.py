@@ -81,7 +81,18 @@ CLICHE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 ]
 
 # Sentence-final 요 (해요체/구어 종결). Counts "~인데요." "~거든요?" etc.
-YO_ENDING_RE = re.compile(r"요\s*(?:[.?!…]|$)", re.MULTILINE)
+# 해요체 종결은 용언 활용이다. 그런데 `요` 로 끝나는 한자 명사가 개조식 종결로
+# 쓰이면("보완 필요.", "추진 개요.") 같은 표면형이 된다. 그것을 구어 종결로 세면
+# `colloquial_erased` 가 발동해 **올바른 윤문 결과를 롤백시킨다**(PR #94 지적).
+#
+# `요` 직전 한 음절로 배제한다. 목록에 `고` 는 넣지 않는다 — "그렇게 하고요" 처럼
+# 진짜 해요체 연결형이 같은 음절을 쓰기 때문이다. 같은 이유로 `세`(주세요)·
+# `네`(그렇네요)·`죠` 계열도 건드리지 않는다. 아래 음절들은 해요체 활용으로
+# 나타나지 않는 한자 명사의 끝음절 앞자리다.
+_YO_NOUN_HEADS = "필중개수주소강동풍"
+YO_ENDING_RE = re.compile(
+    rf"(?<![{_YO_NOUN_HEADS}])요\s*(?:[.?!…]|$)", re.MULTILINE
+)
 
 # colloquial_erased fires only when the original is clearly colloquial
 # (>= MIN_YO endings) AND the output keeps less than KEEP_RATIO of them.
@@ -373,10 +384,46 @@ def extract_quotes(text: str, min_len: int = MIN_QUOTE_LEN) -> list[str]:
     return [q for q in quotes if len(q.strip()) >= min_len]
 
 
+# ── 인용 분류: 발화 인용 vs 필자의 수사적 자문 (2026-08-29 정책) ─────────
+# 큰따옴표라고 다 같은 인용이 아니다. 발화자·발화 동사가 붙은 인용("…"고 말했다,
+# 보고서에 따르면 "…")만 불변이고, 필자가 자문(自問)·강조를 따옴표로 감싼 수사
+# 장치는 필자 자신의 문장이므로 윤문 대상이다. 저자가 직접 교정한 정답지가 자문
+# 인용 안을 고쳤고, 이 구분 없이는 어떤 실행자도 그 수준에 도달할 수 없었다.
+# 판정 창은 문장 경계에서 자른다 — 넓게 잡으면 이웃 문장의 발화 동사가
+# 자문 인용을 오보호한다(웹 구현 실측).
+_SPEECH_MARK_RE = re.compile(
+    r"말했|말한다|밝혔|밝힌|강조했|강조한|언급|설명했|설명한다|전했|덧붙"
+    r"|지적했|지적한다|답했|묻자|물었|따르면|촉구|당부|호소|주장했|경고했"
+)
+
+
+# 인용 닫힘 직후의 "~고/~라고 + 용언"은 동사가 무엇이든 발화·전거 구문이다
+# ("…"고 말했다 / "…"라고 보고하였다 / "…"으로 정의한다). 어휘 사전은 새는 반면
+# (실측: "보고하였다" 누락으로 학술 인용이 무보호), 이 구조 신호는 포괄적이다.
+_ATTRIB_AFTER_RE = re.compile(r'^[""\"]?\s*(?:[이으]?라고|고|[으]?로)\s*[가-힣]{1,8}(?:하|했|한다|된다|였|입니다)')
+
+
+def _is_protected_quote(original: str, span: str) -> bool:
+    i = original.find(span)
+    if i < 0:
+        return True  # 못 찾으면 보수적으로 보호
+    before = original[max(0, i - 30):i]
+    cut = max(before.rfind(". "), before.rfind("다. "))
+    if cut >= 0:
+        before = before[cut + 1:]
+    after = original[i + len(span):i + len(span) + 24]
+    cut = after.find(". ")
+    if cut >= 0:
+        after = after[:cut + 1]
+    if _ATTRIB_AFTER_RE.search(after):
+        return True
+    return bool(_SPEECH_MARK_RE.search(before) or _SPEECH_MARK_RE.search(after))
+
+
 def check_quotes(original: str, output: str) -> list[Failure]:
     fails = []
     for q in extract_quotes(original):
-        if q not in output:
+        if q not in output and _is_protected_quote(original, q):
             fails.append(Failure(
                 "quote_altered",
                 f"직접 인용 「{q[:30]}…」이 윤문본에 원문 그대로 없습니다 (인용 불변 철칙)",
@@ -391,6 +438,14 @@ def check_quotes(original: str, output: str) -> list[Failure]:
 _SUMMARY_BLOCK_RE = re.compile(r"<!--\s*HUMANIZE-SUMMARY\b.*", re.DOTALL)
 
 
+def split_summary_block(text: str) -> tuple[str, str]:
+    """본문과 보존해야 할 ``HUMANIZE-SUMMARY`` 메타 블록을 나눈다."""
+    match = _SUMMARY_BLOCK_RE.search(text)
+    if match is None:
+        return text, ""
+    return text[:match.start()], text[match.start():]
+
+
 def strip_summary_block(text: str) -> str:
     """final.md 끝의 <!-- HUMANIZE-SUMMARY --> 메타 블록을 제거한다.
 
@@ -398,7 +453,8 @@ def strip_summary_block(text: str) -> str:
     같은 표현이 들어가 채점기가 본문 주입으로 오판하는 것을 막는다
     (verify_change_rate.py와 동일한 처리).
     """
-    return _SUMMARY_BLOCK_RE.sub("", text).strip()
+    body, _ = split_summary_block(text)
+    return body.strip()
 
 
 def protected_spans(text):

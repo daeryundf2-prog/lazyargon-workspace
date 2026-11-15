@@ -9,8 +9,10 @@ Bundled and adapted
 
 - skills/humanize-korean/
   Upstream: https://github.com/epoko77-ai/im-not-ai (skills/humanize-korean)
-  Synced at commit b37e0206d31fffd9149bf57168d4d62eb2086bee (2026-11-15), three-way merged
-  with our Antigravity changes (PLUGIN_ROOT / ${SKILL_DIR} path resolution, Windows wrappers).
+  Synced at commit 80fae0c (v2.4.2, 2026-11-15), three-way merged with our Antigravity changes
+  (PLUGIN_ROOT / ${SKILL_DIR} path resolution, Windows wrappers). The pipeline scripts it calls
+  (scripts/prepare_monolith_input.py, lexical_layer.py, restore_modality.py, strip_injected_commas.py,
+  verify_gates.py, checks.py and siblings) and tests/test_lexical_layer.py come from the same repository.
   License: MIT
 
   MIT License
